@@ -15,6 +15,7 @@ import {
   HeartPulse,
   Car
 } from "lucide-react";
+import Link from "next/link";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -131,10 +132,12 @@ export default async function DashboardPage() {
 
             <div className="flex items-center gap-3">
               {role === "CITIZEN" ? (
+                <Link href="/report">
                 <button className="flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-600/30 transition hover:bg-red-500 active:scale-95">
                   <PlusCircle className="h-5 w-5" />
                   Report New Emergency
                 </button>
+                </Link>
               ) : (
                 <button className="flex items-center gap-2 rounded-2xl bg-zinc-800 border border-white/10 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-zinc-700">
                   <Radio className="h-5 w-5 text-red-400 animate-pulse" />
