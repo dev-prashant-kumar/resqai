@@ -3,8 +3,6 @@
 import { FormEvent, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { ShieldAlert, Mail, Lock, Loader2, ArrowRight } from "lucide-react";
-import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,129 +10,195 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function handleLogin(e: FormEvent) {
-    e.preventDefault();
-    setLoading(true);
+  function redirectByRole(role: string) {
+    router.refresh();
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (signInError) {
-      if (signInError.message.toLowerCase().includes("invalid login credentials")) {
-        toast.error("Invalid email or password. Please check your credentials.");
-      } else if (signInError.message.toLowerCase().includes("email not confirmed")) {
-        toast.error("Please confirm your email address before logging in.");
-      } else {
-        toast.error(signInError.message);
-      }
-      setLoading(false);
-      return;
+    switch (role) {
+      case "RESPONDER":
+        console.log("7. REDIRECTING TO RESPONDER");
+        router.replace("/responder");
+        break;
+      case "OPERATOR":
+        console.log("7. REDIRECTING TO OPERATOR");
+        router.replace("/operator");
+        break;
+      case "ADMIN":
+        console.log("7. REDIRECTING TO ADMIN");
+        router.replace("/admin");
+        break;
+      case "CITIZEN":
+        console.log("7. REDIRECTING TO CITIZEN");
+        router.replace("/dashboard");
+        break;
+      default:
+        console.error("UNKNOWN ROLE:", role);
+        setError(`Unknown role: ${role}`);
     }
+  }
 
-    toast.success("Login successful! Accessing dashboard...");
-    setTimeout(() => {
-      router.push("/dashboard");
-      router.refresh();
-    }, 1000);
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setLoading(true);
+    setError("");
+
+    try {
+      console.log("1. Starting login...");
+
+      const { data, error: loginError } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
+      if (loginError) {
+        console.error("LOGIN ERROR:", loginError);
+        setError(loginError.message);
+        return;
+      }
+
+      if (!data.user) {
+        setError("No authenticated user was returned.");
+        return;
+      }
+
+      console.log("2. Authenticated user:", data.user.id);
+      console.log("3. Email:", data.user.email);
+
+      // Use .maybeSingle() instead of .single() to avoid PGRST116 throwing an error
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, full_name, role")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("PROFILE ERROR:", profileError);
+        setError(`Profile could not be loaded: ${profileError.message}`);
+        return;
+      }
+
+      // Handle the case where no profile record exists in public.profiles
+      if (!profile) {
+        console.warn("No profile record found in 'profiles' for user ID:", data.user.id);
+
+        const metadataRole = data.user.user_metadata?.role;
+        if (metadataRole) {
+          redirectByRole(String(metadataRole).toUpperCase());
+          return;
+        }
+
+        setError(
+          "Your profile record does not exist in the database. Ensure RLS policies allow reading your profile, or verify the user row in the profiles table."
+        );
+        return;
+      }
+
+      console.log("4. PROFILE:", profile);
+      console.log("5. ROLE FROM DATABASE:", profile.role);
+
+      const role = String(profile.role).toUpperCase();
+      console.log("6. NORMALIZED ROLE:", role);
+
+      redirectByRole(role);
+    } catch (err) {
+      console.error("UNEXPECTED LOGIN ERROR:", err);
+      setError("Something went wrong while logging in.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-zinc-950 px-4 py-12 text-zinc-100 overflow-hidden">
-      {/* Background Glow Ambient Lights */}
-      <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-red-600/10 blur-[120px]" />
-      <div className="absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-rose-600/10 blur-[120px]" />
-
-      <div className="relative w-full max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-8 shadow-2xl backdrop-blur-2xl">
-        
-        {/* Header Branding */}
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-600/20 border border-red-500/30 text-red-500 shadow-inner">
-              <ShieldAlert className="h-6 w-6 animate-pulse" />
-            </div>
-            <div>
-              <span className="text-xs font-bold tracking-widest text-red-500 uppercase">RESQAI Network</span>
-              <h1 className="text-2xl font-black tracking-tight text-white">Welcome Back</h1>
-            </div>
+    <main className="flex min-h-screen items-center justify-center bg-[#07090d] px-4">
+      <div className="w-full max-w-md">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/10">
+            <span className="text-2xl">🚨</span>
           </div>
-          <span className="rounded-full bg-white/5 border border-white/10 px-3 py-1 text-[11px] font-medium text-zinc-400">
-            Secure Portal
-          </span>
+
+          <p className="text-sm font-semibold tracking-[0.25em] text-red-400">
+            RESQAI
+          </p>
+
+          <h1 className="mt-3 text-3xl font-bold text-white">
+            Welcome back
+          </h1>
+
+          <p className="mt-2 text-sm text-gray-400">
+            Sign in to your emergency response account.
+          </p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          
-          {/* Email Input */}
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-              Email Address
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-3.5 h-5 w-5 text-zinc-500" />
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 backdrop-blur-xl">
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label
+                htmlFor="email"
+                className="mb-2 block text-sm text-gray-300"
+              >
+                Email
+              </label>
+
               <input
+                id="email"
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
                 placeholder="you@example.com"
-                className="w-full rounded-xl border border-white/10 bg-white/5 pl-12 pr-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none placeholder:text-gray-600 focus:border-red-500"
               />
             </div>
-          </div>
 
-          {/* Password Input */}
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-3.5 h-5 w-5 text-zinc-500" />
+            <div>
+              <label
+                htmlFor="password"
+                className="mb-2 block text-sm text-gray-300"
+              >
+                Password
+              </label>
+
               <input
+                id="password"
                 type="password"
                 required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(event) => setPassword(event.target.value)}
                 placeholder="Enter your password"
-                className="w-full rounded-xl border border-white/10 bg-white/5 pl-12 pr-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all"
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-4 py-3.5 text-white outline-none placeholder:text-gray-600 focus:border-red-500"
               />
             </div>
-          </div>
 
-          {/* Submit Action Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-red-600/30 transition-all hover:bg-red-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span>Signing in...</span>
-              </>
-            ) : (
-              <>
-                <span>Sign In</span>
-                <ArrowRight className="h-4 w-4" />
-              </>
+            {error && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+                {error}
+              </div>
             )}
-          </button>
-        </form>
 
-        {/* Footer Link to Register */}
-        <p className="mt-6 text-center text-xs text-zinc-400">
-          Don't have an account yet?{" "}
-          <button
-            onClick={() => router.push("/register")}
-            className="font-semibold text-red-400 hover:text-red-300 underline underline-offset-4"
-          >
-            Create account
-          </button>
-        </p>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-red-600 px-4 py-3.5 font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
+            >
+              {loading ? "Signing in..." : "Sign In"}
+            </button>
+          </form>
 
+          <div className="mt-6 text-center">
+            <button
+              type="button"
+              onClick={() => router.push("/register")}
+              className="text-sm text-red-400 hover:text-red-300"
+            >
+              Create an account
+            </button>
+          </div>
+        </div>
       </div>
     </main>
   );
