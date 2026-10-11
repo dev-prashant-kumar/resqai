@@ -1,0 +1,20 @@
+{
+  "name": "ResQAI Emergency Platform",
+  "short_name": "ResQAI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B1120",
+  "theme_color": "#0B1120",
+  "icons": [
+    {
+      "src": "/resqai-icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/resqai-icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
