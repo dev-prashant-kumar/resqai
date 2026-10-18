@@ -14,31 +14,31 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  function redirectByRole(role: string) {
-    router.refresh();
 
-    switch (role) {
-      case "RESPONDER":
-        console.log("7. REDIRECTING TO RESPONDER");
-        router.replace("/responder");
-        break;
-      case "OPERATOR":
-        console.log("7. REDIRECTING TO OPERATOR");
-        router.replace("/operator");
-        break;
-      case "ADMIN":
-        console.log("7. REDIRECTING TO ADMIN");
-        router.replace("/admin");
-        break;
-      case "CITIZEN":
-        console.log("7. REDIRECTING TO CITIZEN");
-        router.replace("/dashboard");
-        break;
-      default:
-        console.error("UNKNOWN ROLE:", role);
-        setError(`Unknown role: ${role}`);
-    }
+function redirectByRole(role: string) {
+  router.refresh();
+
+  switch (role.trim().toUpperCase()) {
+    case "RESPONDER":
+      router.replace("/responder");
+      break;
+
+    case "ADMIN":
+    case "OPERATOR":
+      // Legacy OPERATOR accounts use the ADMIN dashboard.
+      router.replace("/admin");
+      break;
+
+    case "CITIZEN":
+      router.replace("/dashboard");
+      break;
+
+    default:
+      console.error("UNKNOWN ROLE:", role);
+      setError(`Unknown role: ${role}`);
   }
+}
+
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

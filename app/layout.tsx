@@ -35,9 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/resqai-icon.png" />
       </head>
       <body className="min-h-full flex flex-col">
-        <SplashScreen>
         {children}
-        </SplashScreen>
         <Toaster richColors position="top-center" />
       </body>
     </html>

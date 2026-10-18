@@ -9,7 +9,7 @@ import {
   ShieldAlert,
   Activity,
 } from "lucide-react";
-import IncidentStatusActions from "./status-actions";
+import IncidentStatusActions from "@/components/IncidentStatusActions";
 
 export const dynamic = "force-dynamic";
 
@@ -37,22 +37,25 @@ export default async function IncidentDetailsPage({
   const role = profile?.role?.toUpperCase() || "CITIZEN";
 
   // Fetch incident details from Supabase
-  const { data: incident, error } = await supabase
-    .from("incidents")
-    .select(
-      "id,user_id,title,description,incident_type,severity,status,address,affected_people,medical_required,evacuation_required,created_at,ai_confidence,ai_analysis"
-    )
-    .eq("id", id)
-    .single();
 
-  if (error || !incident) {
-    console.error("Supabase Incident Fetch Error:", error);
-    notFound();
-  }
+const { data: incident, error } = await supabase
+  .from("incidents")
+  .select(
+    "id,reported_by,title,description,incident_type,severity,status,address,affected_people,medical_required,evacuation_required,created_at,ai_confidence,ai_analysis"
+  )
+  .eq("id", id)
+  .single();
 
-  const isAdminOrOperator = role === "ADMIN" || role === "OPERATOR";
-  const isOwner = incident.user_id === user.id;
-  const isClosed = ["RESOLVED", "CANCELLED"].includes(incident.status);
+// Handle missing incidents or Supabase query errors first.
+if (error || !incident) {
+  console.error("Supabase Incident Fetch Error:", error);
+  notFound();
+}
+
+const isAdminOrOperator = role === "ADMIN" || role === "OPERATOR";
+const isOwner = incident.reported_by === user.id;
+const isClosed = ["RESOLVED", "CANCELLED"].includes(incident.status);
+
 
   return (
     <main className="min-h-screen bg-[#08090c] px-4 py-8 text-zinc-100 sm:px-8">
@@ -163,10 +166,7 @@ export default async function IncidentDetailsPage({
 
             {isAdminOrOperator ? (
               !isClosed ? (
-                <IncidentStatusActions
-                  incidentId={incident.id}
-                  currentStatus={incident.status}
-                />
+                <IncidentStatusActions incidentId={incident.id} currentStatus={incident.status} />
               ) : (
                 <p className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-3 text-xs text-emerald-300">
                   Incident is CLOSED (Resolved or Cancelled).
