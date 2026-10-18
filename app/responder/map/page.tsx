@@ -95,6 +95,20 @@ export default async function ResponderMapPage() {
           <MapLoader incidents={incidents} />
         )}
       </div>
+      <footer className="hidden md:flex border-t border-white/10 bg-zinc-950 py-5 px-8 items-center justify-between text-xs text-zinc-500">
+        <div>© {new Date().getFullYear()} ResQAI. All rights reserved.</div>
+        <div>
+          Developed by{" "}
+          <a
+            href="https://github.com/dev-prashant-kumar"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-red-400 font-semibold underline underline-offset-4 transition hover:text-red-300"
+          >
+            Shant
+          </a>
+        </div>
+      </footer>
     </main>
   );
 }
