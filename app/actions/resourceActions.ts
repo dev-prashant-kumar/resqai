@@ -6,42 +6,44 @@ import { revalidatePath } from "next/cache";
 export async function assignResourceToIncident(incidentId: string, resourceId: string) {
   const supabase = await createClient();
 
-  // Verify authentication & permissions
+  const { error } = await supabase
+    .from("resources")
+    .update({ 
+      assigned_incident_id: incidentId,
+      status: "ASSIGNED" // Matches your database resource_status enum
+    })
+    .eq("id", resourceId);
+
+  if (error) {
+    console.error("Assignment Error:", error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/dashboard/incidents/${incidentId}`);
+  return { success: true };
+}
+
+export async function releaseResource(resourceId: string, incidentId: string) {
+  const supabase = await createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    return { success: false, error: "Unauthorized user." };
-  }
+  if (!user) return { success: false, error: "Unauthorized" };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const role = String(profile?.role ?? "").toUpperCase();
-  if (role !== "RESPONDER" && role !== "ADMIN" && role !== "OPERATOR") {
-    return { success: false, error: "Permission denied." };
-  }
-
-  // 1. Update the incident status to ASSIGNED or IN_PROGRESS and link the resource if your table supports it,
-  // Or update the resource's status to 'DISPATCHED'
-  const { error: resourceError } = await supabase
+  // Return resource status back to AVAILABLE
+  const { error } = await supabase
     .from("resources")
-    .update({ status: "DISPATCHED" })
+    .update({ 
+      status: "AVAILABLE",
+      assigned_incident_id: null 
+    })
     .eq("id", resourceId);
 
-  if (resourceError) {
-    return { success: false, error: resourceError.message };
+  if (error) {
+    return { success: false, error: error.message };
   }
-
-  // Also update incident status to IN_PROGRESS if it was reported
-  await supabase
-    .from("incidents")
-    .update({ status: "IN_PROGRESS" })
-    .eq("id", incidentId);
 
   revalidatePath(`/dashboard/incidents/${incidentId}`);
   revalidatePath("/responder");

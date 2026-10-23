@@ -44,11 +44,19 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
 
   const role = profile?.role?.toUpperCase() || "CITIZEN";
 
-  // Fetch incident details from Supabase
+  // Fetch incident details along with joined auto-dispatched resource data in one query
   const { data: incident, error } = await supabase
     .from("incidents")
     .select(
-      "id,reported_by,title,description,incident_type,severity,status,address,affected_people,medical_required,evacuation_required,created_at,ai_confidence,ai_analysis"
+      `
+      *,
+      resources (
+        id,
+        name,
+        resource_type,
+        status
+      )
+    `
     )
     .eq("id", id)
     .single();
@@ -73,10 +81,20 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
       ? "/incidents"
       : "/dashboard";
 
-  const { data: resources } = await supabase
-    .from("resources")
-    .select("id, name, resource_type, status")
-    .eq("status", "AVAILABLE");
+  // Fetch available resources & assigned resources concurrently
+  const [availableResResult, assignedResResult] = await Promise.all([
+    supabase
+      .from("resources")
+      .select("id, name, resource_type, status")
+      .eq("status", "AVAILABLE"),
+    supabase
+      .from("resources")
+      .select("id, name, resource_type, status")
+      .eq("assigned_incident_id", id),
+  ]);
+
+  const availableResources = availableResResult.data ?? [];
+  const assignedResources = assignedResResult.data ?? [];
 
   return (
     <main className="min-h-screen bg-[#060709] px-4 py-8 text-zinc-100 sm:px-8 flex flex-col justify-between antialiased selection:bg-red-500 selection:text-white">
@@ -108,10 +126,12 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
         </div>
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1.3fr_.7fr]">
-          {/* Left Column: Details + Resource Assignment Box placed down below */}
+          {/* Left Column: Details + AI Intelligence + Auto-Dispatch Status + Resource Assignment Box */}
           <section className="space-y-6">
             <div className="rounded-3xl border border-white/10 bg-[#101115] p-5 sm:p-6 shadow-xl">
-              <h2 className="font-bold text-white text-base">Incident Information</h2>
+              <h2 className="font-bold text-white text-base">
+                Incident Information
+              </h2>
 
               <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-zinc-300">
                 {incident.description || "No description provided."}
@@ -166,7 +186,9 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                     <p className="mt-3 text-xs text-zinc-500 font-mono">
                       Confidence Score:{" "}
                       {Number(incident.ai_confidence) <= 1
-                        ? `${(Number(incident.ai_confidence) * 100).toFixed(1)}%`
+                        ? `${(Number(incident.ai_confidence) * 100).toFixed(
+                            1
+                          )}%`
                         : `${Number(incident.ai_confidence).toFixed(1)}%`}
                     </p>
                   )}
@@ -174,19 +196,75 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
               </div>
             )}
 
-            {/* Resource Assignment Box placed down below the details section */}
+            {/* Live Auto-Dispatched Unit Card (Visible to both Users & Responders) */}
+            {(() => {
+              // Handle if resources comes back as an array or a single object from Supabase join
+              const assignedRes = Array.isArray(incident?.resources)
+                ? incident.resources[0]
+                : incident?.resources;
+
+              return assignedRes ? (
+                <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5 sm:p-6 shadow-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 text-lg">
+                      🚑
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                        Unit Dispatched & En Route
+                      </span>
+                      <h4 className="text-base font-bold text-white">
+                        {assignedRes.name} ({assignedRes.resource_type})
+                      </h4>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-zinc-300 leading-relaxed">
+                    Your emergency has been matched automatically with the
+                    nearest available unit. Help is on the way.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-3xl border border-white/10 bg-[#101115] p-5 sm:p-6 shadow-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 animate-pulse text-lg">
+                      🔍
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                        Dispatch in Progress
+                      </span>
+                      <h4 className="text-base font-bold text-white">
+                        Searching Nearest Unit
+                      </h4>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-zinc-400 leading-relaxed">
+                    Scanning sector coordinates for the closest available
+                    emergency responder...
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* Manual Resource Assignment Box (For Responders/Admins) */}
             {isAuthorizedResponderOrAdmin && !isClosed && (
               <ResourceAssignmentBox
                 incidentId={incident.id}
-                availableResources={resources ?? []}
+                incidentType={incident.incident_type}
+                medicalRequired={incident.medical_required}
+                evacuationRequired={incident.evacuation_required}
+                availableResources={availableResources}
+                assignedResources={assignedResources}
               />
             )}
           </section>
 
-          {/* Right Sidebar: Progress Status (Response Status & State Machine Actions) */}
+          {/* Right Sidebar: Response Status & State Machine Actions */}
           <aside className="h-fit space-y-4">
             <div className="rounded-3xl border border-white/10 bg-[#101115] p-5 sm:p-6 shadow-xl">
-              <h2 className="font-bold text-white text-base">Response Status</h2>
+              <h2 className="font-bold text-white text-base">
+                Response Status
+              </h2>
               <p className="mt-1.5 text-xs text-zinc-400">
                 {isAuthorizedResponderOrAdmin
                   ? "Manage emergency status and trigger progress updates."
@@ -213,12 +291,15 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                   </div>
                 ) : (
                   <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-xs font-medium text-emerald-300">
-                    Incident is CLOSED (Resolved or Cancelled). Operations finalized.
+                    Incident is CLOSED (Resolved or Cancelled). Operations
+                    finalized.
                   </div>
                 )
               ) : (
                 <p className="mt-5 text-xs leading-5 text-zinc-400 border-t border-white/10 pt-4">
-                  Your report is registered with the ResQAI command center. Responders receive real-time location and priority updates automatically.
+                  Your report is registered with the ResQAI command center.
+                  Responders receive real-time location and priority updates
+                  automatically.
                 </p>
               )}
             </div>

@@ -192,8 +192,10 @@ export default function ReportEmergencyPage() {
         });
 
       if (insertError) {
-        console.error("Supabase insert error:", insertError);
-        throw insertError;
+        console.error("Supabase error message:", insertError.message);
+        console.error("Supabase error details:", insertError.details);
+        console.error("Supabase error hint:", insertError.hint);
+        throw new Error(insertError.message || "Database insert failed");
       }
 
       // ----------------------------------------------
