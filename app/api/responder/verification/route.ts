@@ -563,3 +563,161 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export async function GET() {
+  try {
+    // 1. Authenticate the current user.
+    const supabase = await createClient();
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Your session has expired. Please sign in again.",
+        },
+        { status: 401 },
+      );
+    }
+
+    // 2. Create the server-side admin client.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error("Missing server-side Supabase configuration.");
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "The verification service is not configured correctly.",
+        },
+        { status: 500 },
+      );
+    }
+
+    const admin = createSupabaseAdmin(
+      supabaseUrl,
+      serviceRoleKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      },
+    );
+
+    // 3. Fetch the organization owned by this user.
+    const { data: organizationData, error: organizationError } =
+      await admin
+        .from("responder_organizations")
+        .select("id, owner_user_id, verification_status")
+        .eq("owner_user_id", user.id)
+        .maybeSingle();
+
+    if (organizationError) {
+      console.error(
+        "Organization status lookup failed:",
+        organizationError.message,
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unable to load your organization status.",
+        },
+        { status: 500 },
+      );
+    }
+
+    if (!organizationData) {
+      return NextResponse.json(
+        {
+          success: true,
+          organization: null,
+          application: null,
+        },
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "private, no-store, max-age=0",
+          },
+        },
+      );
+    }
+
+    // 4. Fetch the latest application submitted by this user.
+    const { data: application, error: applicationError } =
+      await admin
+        .from("responder_organization_applications")
+        .select(
+          [
+            "id",
+            "application_status",
+            "organization_name",
+            "organization_type",
+            "organization_email",
+            "organization_phone",
+            "organization_city",
+            "organization_state",
+            "verification_contact_name",
+            "submitted_at",
+            "updated_at",
+            "review_notes",
+            "rejection_reason",
+          ].join(", "),
+        )
+        .eq("organization_id", organizationData.id)
+        .eq("submitted_by", user.id)
+        .order("submitted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (applicationError) {
+      console.error(
+        "Application status lookup failed:",
+        applicationError.message,
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unable to load your verification application.",
+        },
+        { status: 500 },
+      );
+    }
+
+    // 5. Return only the status and profile information needed by the UI.
+    return NextResponse.json(
+      {
+        success: true,
+        organization: {
+          id: organizationData.id,
+          verification_status: organizationData.verification_status,
+        },
+        application: application ?? null,
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "private, no-store, max-age=0",
+        },
+      },
+    );
+  } catch (error) {
+    console.error("Responder verification status error:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "An unexpected error occurred while loading verification status.",
+      },
+      { status: 500 },
+    );
+  }
+}

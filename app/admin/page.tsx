@@ -1,10 +1,7 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Activity,
   Building2,
@@ -92,6 +89,8 @@ const panelClass =
   "rounded-2xl border border-slate-200/80 bg-white/85 shadow-lg shadow-slate-200/40 backdrop-blur-xl transition-all duration-300 hover:border-blue-200 hover:shadow-xl hover:shadow-blue-100/50";
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -117,7 +116,7 @@ export default function AdminDashboardPage() {
       const result = (await response.json()) as ApiResponse;
 
       if (response.status === 401) {
-        window.location.assign("/login");
+        router.push("/login");
         return;
       }
 
@@ -135,13 +134,15 @@ export default function AdminDashboardPage() {
         );
       }
 
-      setApplications(result.applications ?? []);
+      const nextApplications = result.applications ?? [];
+
+      setApplications(nextApplications);
       setReviewerRole(result.reviewer_role ?? "");
 
       setSelectedId((currentId) => {
         if (
           currentId &&
-          (result.applications ?? []).some((item) => item.id === currentId)
+          nextApplications.some((item) => item.id === currentId)
         ) {
           return currentId;
         }
@@ -157,10 +158,17 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
+  // Defer the initial request until after the effect callback finishes.
   useEffect(() => {
-    void loadApplications();
+    const timer = window.setTimeout(() => {
+      void loadApplications();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [loadApplications]);
 
   const pendingCount = applications.filter(
@@ -188,10 +196,12 @@ export default function AdminDashboardPage() {
     type: "authorization" | "identity",
   ) {
     const key = `${applicationId}:${type}`;
+
     setDocumentBusy(key);
     setError("");
     setNotice("");
 
+    // Open the tab synchronously to reduce the chance of popup blocking.
     const previewTab = window.open("about:blank", "_blank");
 
     try {
@@ -213,7 +223,8 @@ export default function AdminDashboardPage() {
       if (previewTab) {
         previewTab.location.href = result.signed_url;
       } else {
-        window.location.assign(result.signed_url);
+        // The signed URL is external/private storage, not an app route.
+        window.location.href = result.signed_url;
       }
     } catch (err) {
       previewTab?.close();
@@ -286,7 +297,7 @@ export default function AdminDashboardPage() {
       const result = (await response.json()) as ApiResponse;
 
       if (response.status === 401) {
-        window.location.assign("/login");
+        router.push("/login");
         return;
       }
 
@@ -436,14 +447,18 @@ export default function AdminDashboardPage() {
               className="group inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition duration-300 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshCw
-                className={`h-4 w-4 text-blue-600 ${loading ? "animate-spin" : "transition-transform group-hover:rotate-45"}`}
+                className={`h-4 w-4 text-blue-600 ${
+                  loading
+                    ? "animate-spin"
+                    : "transition-transform group-hover:rotate-45"
+                }`}
               />
               Refresh
             </button>
 
             <button
               type="button"
-              onClick={() => window.location.assign("/")}
+              onClick={() => router.push("/")}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition duration-300 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
             >
               <LogOut className="h-4 w-4" />
@@ -501,7 +516,7 @@ export default function AdminDashboardPage() {
             return (
               <div
                 key={stat.label}
-                className={`group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 p-5 shadow-lg shadow-slate-200/35 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/70`}
+                className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 p-5 shadow-lg shadow-slate-200/35 backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-xl hover:shadow-blue-100/70"
               >
                 <div
                   className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${stat.accent} opacity-70 transition-opacity group-hover:opacity-100`}
@@ -563,7 +578,9 @@ export default function AdminDashboardPage() {
 
         {/* Main content */}
         {loading ? (
-          <div className={`${panelClass} flex min-h-64 items-center justify-center gap-3`}>
+          <div
+            className={`${panelClass} flex min-h-64 items-center justify-center gap-3`}
+          >
             <LoaderCircle className="h-6 w-6 animate-spin text-blue-600" />
             <span className="text-sm font-medium text-slate-500">
               Loading applications...
@@ -674,8 +691,14 @@ export default function AdminDashboardPage() {
 
                   <div className="space-y-4">
                     {[
-                      ["Organization type", selectedApplication.organization_type],
-                      ["Registration number", selectedApplication.organization_registration_number],
+                      [
+                        "Organization type",
+                        selectedApplication.organization_type,
+                      ],
+                      [
+                        "Registration number",
+                        selectedApplication.organization_registration_number,
+                      ],
                       ["Email", selectedApplication.organization_email],
                       ["Phone", selectedApplication.organization_phone],
                       [
@@ -690,12 +713,30 @@ export default function AdminDashboardPage() {
                           .join(", "),
                       ],
                       ["Website", selectedApplication.organization_website],
-                      ["Representative", selectedApplication.representative_contact_name],
-                      ["Designation", selectedApplication.representative_designation],
-                      ["Representative email", selectedApplication.representative_contact_email],
-                      ["Representative phone", selectedApplication.representative_contact_phone],
-                      ["Official directory", selectedApplication.official_directory_url],
-                      ["Submitted at", formatDate(selectedApplication.submitted_at)],
+                      [
+                        "Representative",
+                        selectedApplication.representative_contact_name,
+                      ],
+                      [
+                        "Designation",
+                        selectedApplication.representative_designation,
+                      ],
+                      [
+                        "Representative email",
+                        selectedApplication.representative_contact_email,
+                      ],
+                      [
+                        "Representative phone",
+                        selectedApplication.representative_contact_phone,
+                      ],
+                      [
+                        "Official directory",
+                        selectedApplication.official_directory_url,
+                      ],
+                      [
+                        "Submitted at",
+                        formatDate(selectedApplication.submitted_at),
+                      ],
                     ].map(([label, value]) => (
                       <div
                         key={label}
@@ -759,7 +800,8 @@ export default function AdminDashboardPage() {
                           <FileText className="h-4 w-4 shrink-0 text-blue-600" />
                           Authorization document
                         </span>
-                        {documentBusy === `${selectedApplication.id}:authorization` ? (
+                        {documentBusy ===
+                        `${selectedApplication.id}:authorization` ? (
                           <LoaderCircle className="h-4 w-4 animate-spin" />
                         ) : (
                           <ExternalLink className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
@@ -784,7 +826,8 @@ export default function AdminDashboardPage() {
                           <FileText className="h-4 w-4 shrink-0 text-indigo-600" />
                           Representative identity
                         </span>
-                        {documentBusy === `${selectedApplication.id}:identity` ? (
+                        {documentBusy ===
+                        `${selectedApplication.id}:identity` ? (
                           <LoaderCircle className="h-4 w-4 animate-spin" />
                         ) : (
                           <ExternalLink className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
@@ -801,7 +844,10 @@ export default function AdminDashboardPage() {
                         type="button"
                         disabled={busyId !== null}
                         onClick={() =>
-                          void reviewApplication(selectedApplication, "APPROVE")
+                          void reviewApplication(
+                            selectedApplication,
+                            "APPROVE",
+                          )
                         }
                         className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-md shadow-emerald-200/70 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -817,7 +863,10 @@ export default function AdminDashboardPage() {
                         type="button"
                         disabled={busyId !== null}
                         onClick={() =>
-                          void reviewApplication(selectedApplication, "REJECT")
+                          void reviewApplication(
+                            selectedApplication,
+                            "REJECT",
+                          )
                         }
                         className="group flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition-all duration-300 hover:-translate-y-0.5 hover:border-red-300 hover:bg-red-100 hover:shadow-lg hover:shadow-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                       >
