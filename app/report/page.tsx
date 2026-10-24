@@ -211,12 +211,13 @@ export default function ReportEmergencyPage() {
       });
 
       if (insertError) {
-        console.error("Supabase incident insert error:", insertError);
-        throw new Error(
-          insertError.message ||
-            "Your report could not be saved. Please try again."
-        );
+        console.error("Supabase insert error:", insertError);
+        throw insertError;
       }
+
+      // ----------------------------------------------
+      // Success
+      // ----------------------------------------------
 
       setSuccess(true);
 

@@ -30,7 +30,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}
+      <head>
+        <link rel="apple-touch-icon" href="/resqai-icon.png" />
+      </head>
+      <body className="min-h-full flex flex-col">
+        {children}
         <Toaster richColors position="top-center" />
       </body>
     </html>

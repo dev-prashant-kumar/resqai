@@ -32,6 +32,33 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function redirectByRole(role: string) {
+    router.refresh();
+
+    switch (role) {
+      case "RESPONDER":
+        console.log("7. REDIRECTING TO RESPONDER");
+        router.replace("/responder");
+        break;
+      case "OPERATOR":
+        console.log("7. REDIRECTING TO OPERATOR");
+        router.replace("/operator");
+        break;
+      case "ADMIN":
+        console.log("7. REDIRECTING TO ADMIN");
+        router.replace("/admin");
+        break;
+      case "CITIZEN":
+        console.log("7. REDIRECTING TO CITIZEN");
+        router.replace("/dashboard");
+        break;
+      default:
+        console.error("UNKNOWN ROLE:", role);
+        setError(`Unknown role: ${role}`);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
