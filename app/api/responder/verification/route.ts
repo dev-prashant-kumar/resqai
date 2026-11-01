@@ -160,7 +160,7 @@ export async function POST(request: Request) {
 
     // 2. Read server-only Supabase credentials.
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const serviceRoleKey = process.env.SUPABASE_SECRET_KEY;
 
     if (!supabaseUrl || !serviceRoleKey) {
       console.error(
@@ -564,6 +564,7 @@ export async function POST(request: Request) {
   }
 }
 
+
 export async function GET() {
   try {
     // 1. Authenticate the current user.
@@ -584,25 +585,26 @@ export async function GET() {
       );
     }
 
-    // 2. Create the server-side admin client.
+    // 2. Read server-side Supabase credentials.
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const secretKey = process.env.SUPABASE_SECRET_KEY;
 
-    if (!supabaseUrl || !serviceRoleKey) {
-      console.error("Missing server-side Supabase configuration.");
+    if (!supabaseUrl || !secretKey) {
+      console.error("Missing Supabase server configuration.");
 
       return NextResponse.json(
         {
           success: false,
-          message: "The verification service is not configured correctly.",
+          message: "Verification service is not configured correctly.",
         },
         { status: 500 },
       );
     }
 
+    // 3. Create server-only privileged client.
     const admin = createSupabaseAdmin(
       supabaseUrl,
-      serviceRoleKey,
+      secretKey,
       {
         auth: {
           autoRefreshToken: false,
@@ -611,8 +613,8 @@ export async function GET() {
       },
     );
 
-    // 3. Fetch the organization owned by this user.
-    const { data: organizationData, error: organizationError } =
+    // 4. Find the organization belonging to this user.
+    const { data: organization, error: organizationError } =
       await admin
         .from("responder_organizations")
         .select("id, owner_user_id, verification_status")
@@ -621,25 +623,27 @@ export async function GET() {
 
     if (organizationError) {
       console.error(
-        "Organization status lookup failed:",
+        "Organization lookup failed:",
         organizationError.message,
       );
 
       return NextResponse.json(
         {
           success: false,
-          message: "Unable to load your organization status.",
+          message: "Unable to load organization status.",
         },
         { status: 500 },
       );
     }
 
-    if (!organizationData) {
+    if (!organization) {
       return NextResponse.json(
         {
           success: true,
           organization: null,
           application: null,
+          status: "NOT_SUBMITTED",
+          message: "No organization is linked to this account.",
         },
         {
           status: 200,
@@ -650,28 +654,26 @@ export async function GET() {
       );
     }
 
-    // 4. Fetch the latest application submitted by this user.
+    // 5. Get the latest application for this organization.
     const { data: application, error: applicationError } =
       await admin
         .from("responder_organization_applications")
-        .select(
-          [
-            "id",
-            "application_status",
-            "organization_name",
-            "organization_type",
-            "organization_email",
-            "organization_phone",
-            "organization_city",
-            "organization_state",
-            "verification_contact_name",
-            "submitted_at",
-            "updated_at",
-            "review_notes",
-            "rejection_reason",
-          ].join(", "),
-        )
-        .eq("organization_id", organizationData.id)
+        .select(`
+          id,
+          application_status,
+          organization_name,
+          organization_type,
+          organization_email,
+          organization_phone,
+          organization_city,
+          organization_state,
+          verification_contact_name,
+          submitted_at,
+          updated_at,
+          review_notes,
+          rejection_reason
+        `)
+        .eq("organization_id", organization.id)
         .eq("submitted_by", user.id)
         .order("submitted_at", { ascending: false })
         .limit(1)
@@ -679,28 +681,50 @@ export async function GET() {
 
     if (applicationError) {
       console.error(
-        "Application status lookup failed:",
+        "Application lookup failed:",
         applicationError.message,
       );
 
       return NextResponse.json(
         {
           success: false,
-          message: "Unable to load your verification application.",
+          message: "Unable to load verification application.",
         },
         { status: 500 },
       );
     }
 
-    // 5. Return only the status and profile information needed by the UI.
+    // 6. Resolve the status using both database records.
+    const organizationStatus =
+      organization.verification_status?.toUpperCase() ?? "PENDING";
+
+    const applicationStatus =
+      application?.application_status?.toUpperCase() ?? null;
+
+    // Your database uses APPROVED, not only VERIFIED.
+    const isApproved =
+      organizationStatus === "APPROVED" ||
+      organizationStatus === "VERIFIED" ||
+      applicationStatus === "APPROVED";
+
+    const status = isApproved
+      ? "APPROVED"
+      : applicationStatus ?? organizationStatus;
+
+    // 7. Return consistent status information.
     return NextResponse.json(
       {
         success: true,
         organization: {
-          id: organizationData.id,
-          verification_status: organizationData.verification_status,
+          id: organization.id,
+          verification_status: organizationStatus,
+          is_verified: isApproved,
         },
         application: application ?? null,
+        status,
+        message: isApproved
+          ? "Your organization has been approved."
+          : "Your verification application is being processed.",
       },
       {
         status: 200,
@@ -721,3 +745,4 @@ export async function GET() {
     );
   }
 }
+

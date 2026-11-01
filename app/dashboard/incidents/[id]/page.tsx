@@ -11,11 +11,15 @@ import {
   Activity,
   CheckCircle2,
   Truck,
-  Search,
   FileText,
   CalendarDays,
   HeartPulse,
+  ClipboardCheck,
+  AlertCircle,
+  Building2,
+  UserCheck,
 } from "lucide-react";
+
 import IncidentStatusActions from "@/components/IncidentStatusActions";
 import ResourceAssignmentBox from "@/components/ResourceAssignmentBox";
 
@@ -25,7 +29,92 @@ interface PageProps {
   params: Promise<{ id: string }> | { id: string };
 }
 
-export default async function IncidentDetailsPage({ params }: PageProps) {
+interface Resource {
+  id: string;
+  name: string;
+  resource_type: string;
+  status: string;
+}
+
+interface IncidentIntelligence {
+  analysis?: {
+    detected_type?: string;
+    severity?: string;
+    recommended_resource_types?: string[];
+    requires_human_review?: boolean;
+    review_status?: string;
+    analysis_method?: string;
+  };
+  responsePlan?: {
+    priority?: string;
+    immediate_actions?: string[];
+    recommended_resources?: string[];
+    operator_notes?: string[];
+  };
+}
+
+const severityStyles: Record<string, string> = {
+  LOW: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  MEDIUM: "border-amber-200 bg-amber-50 text-amber-700",
+  HIGH: "border-orange-200 bg-orange-50 text-orange-700",
+  CRITICAL: "border-red-200 bg-red-50 text-red-700",
+};
+
+const statusStyles: Record<string, string> = {
+  REPORTED: "border-amber-200 bg-amber-50 text-amber-700",
+  ANALYZING: "border-blue-200 bg-blue-50 text-blue-700",
+  VERIFIED: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  ASSIGNED: "border-purple-200 bg-purple-50 text-purple-700",
+  IN_PROGRESS: "border-blue-200 bg-blue-50 text-blue-700",
+  RESOLVED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  CANCELLED: "border-slate-200 bg-slate-100 text-slate-600",
+};
+
+const incidentTypeLabels: Record<string, string> = {
+  FLOOD: "Flood",
+  FIRE: "Fire",
+  ROAD_ACCIDENT: "Road accident",
+  MEDICAL: "Medical emergency",
+  EVACUATION: "Evacuation",
+  OTHER: "Other emergency",
+};
+
+const resourceLabels: Record<string, string> = {
+  AMBULANCE: "Ambulance",
+  RESCUE_TEAM: "Rescue team",
+  VOLUNTEER: "Emergency volunteers",
+  EMERGENCY_VEHICLE: "Emergency vehicle",
+  MEDICAL_TEAM: "Medical team",
+  SHELTER: "Emergency shelter",
+};
+
+function formatLabel(value?: string | null) {
+  if (!value) return "Not available";
+
+  return value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getIntelligence(value: unknown): IncidentIntelligence | null {
+  if (!value) return null;
+
+  try {
+    const parsed =
+      typeof value === "string" ? JSON.parse(value) : value;
+
+    if (!parsed || typeof parsed !== "object") return null;
+
+    return parsed as IncidentIntelligence;
+  } catch {
+    return null;
+  }
+}
+
+export default async function IncidentDetailsPage({
+  params,
+}: PageProps) {
   const resolvedParams = await Promise.resolve(params);
   const id = resolvedParams?.id;
 
@@ -39,42 +128,50 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
 
   if (!user) redirect("/login");
 
+  // Get the current user's role.
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
-  const role = profile?.role?.toUpperCase() || "CITIZEN";
+  if (!profile) redirect("/login");
 
+  const role = String(profile.role ?? "CITIZEN").toUpperCase();
+
+  // Fetch the incident.
   const { data: incident, error } = await supabase
     .from("incidents")
-    .select(`
-      *,
-      resources (
-        id,
-        name,
-        resource_type,
-        status
-      )
-    `)
+    .select("*")
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
   if (error || !incident) {
-    console.error("Supabase Incident Fetch Error:", error);
+    console.error("Incident fetch error:", error);
     notFound();
   }
 
-  const isAuthorizedResponderOrAdmin = [
-    "ADMIN",
-    "OPERATOR",
-    "RESPONDER",
-  ].includes(role);
+  // Check incident ownership.
+  const isOwner =
+    incident.reported_by === user.id ||
+    incident.user_id === user.id;
 
-  const isOwner = incident.reported_by === user.id;
+  const isStaff = ["ADMIN", "RESPONDER"].includes(role);
+
+  // Citizens can only view their own reports.
+  if (role === "CITIZEN" && !isOwner) {
+    notFound();
+  }
+
+  if (!isStaff && role !== "CITIZEN") {
+    redirect("/login");
+  }
 
   const status = String(incident.status ?? "REPORTED").toUpperCase();
+
+  const severity = String(
+    incident.severity ?? "MEDIUM"
+  ).toUpperCase();
 
   const isClosed = ["RESOLVED", "CANCELLED"].includes(status);
 
@@ -85,61 +182,74 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
         ? "/incidents"
         : "/dashboard";
 
-  const [availableResResult, assignedResResult] = await Promise.all([
-    supabase
-      .from("resources")
-      .select("id, name, resource_type, status")
-      .eq("status", "AVAILABLE"),
+  // Fetch available and assigned resources separately.
+  const [availableResResult, assignedResResult] =
+    await Promise.all([
+      supabase
+        .from("resources")
+        .select("id, name, resource_type, status")
+        .eq("status", "AVAILABLE"),
 
-    supabase
-      .from("resources")
-      .select("id, name, resource_type, status")
-      .eq("assigned_incident_id", id),
-  ]);
+      supabase
+        .from("resources")
+        .select("id, name, resource_type, status")
+        .eq("assigned_incident_id", id),
+    ]);
 
-  const availableResources = availableResResult.data ?? [];
-  const assignedResources = assignedResResult.data ?? [];
+  const availableResources: Resource[] =
+    availableResResult.data ?? [];
 
-  const resourceData = incident.resources as
-    | {
-        id: string;
-        name: string;
-        resource_type: string;
-        status: string;
-      }
-    | {
-        id: string;
-        name: string;
-        resource_type: string;
-        status: string;
-      }[]
-    | null;
+  const assignedResources: Resource[] =
+    assignedResResult.data ?? [];
 
-  const dispatchedResource = Array.isArray(resourceData)
-    ? resourceData[0]
-    : resourceData;
+  if (availableResResult.error) {
+    console.error(
+      "Available resources fetch error:",
+      availableResResult.error
+    );
+  }
 
-  const severity = String(incident.severity ?? "MEDIUM").toUpperCase();
+  if (assignedResResult.error) {
+    console.error(
+      "Assigned resources fetch error:",
+      assignedResResult.error
+    );
+  }
 
-  const severityStyle =
-    severity === "CRITICAL" || severity === "HIGH"
-      ? "border-red-200 bg-red-50 text-red-700"
-      : severity === "LOW"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-        : "border-amber-200 bg-amber-50 text-amber-700";
+  // Read the saved rule-based assessment.
+  const intelligence = getIntelligence(incident.ai_analysis);
 
-  const statusStyle =
-    status === "RESOLVED"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : status === "CANCELLED"
-        ? "border-slate-200 bg-slate-100 text-slate-600"
-        : status === "IN_PROGRESS" || status === "DISPATCHED"
-          ? "border-blue-200 bg-blue-50 text-blue-700"
-          : "border-amber-200 bg-amber-50 text-amber-700";
+  const analysis = intelligence?.analysis;
+  const responsePlan = intelligence?.responsePlan;
+
+  const assessedSeverity = String(
+    analysis?.severity ?? severity
+  ).toUpperCase();
+
+  const detectedType = analysis?.detected_type;
+
+  const recommendedTypes =
+    analysis?.recommended_resource_types ??
+    responsePlan?.recommended_resources ??
+    [];
+
+  const immediateActions =
+    responsePlan?.immediate_actions ?? [];
+
+  const requiresHumanReview =
+    analysis?.requires_human_review ?? true;
 
   const reportedAt = incident.created_at
     ? new Date(incident.created_at).toLocaleString()
     : "Unavailable";
+
+  const severityStyle =
+    severityStyles[severity] ??
+    "border-slate-200 bg-slate-50 text-slate-600";
+
+  const statusStyle =
+    statusStyles[status] ??
+    "border-slate-200 bg-slate-50 text-slate-600";
 
   return (
     <main className="incident-page relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-white to-blue-50/70 px-4 py-6 text-slate-800 sm:px-7 sm:py-9 lg:px-10">
@@ -155,16 +265,6 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
           }
         }
 
-        @keyframes incidentFloat {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-7px); }
-        }
-
-        @keyframes incidentPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.10); }
-          50% { box-shadow: 0 0 0 7px rgba(37, 99, 235, 0); }
-        }
-
         .incident-animate {
           animation: incidentFadeUp 650ms cubic-bezier(.2,.7,.2,1) both;
         }
@@ -176,7 +276,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
 
         .incident-card {
           border: 1px solid rgba(226, 232, 240, .9);
-          background: rgba(255, 255, 255, .88);
+          background: rgba(255, 255, 255, .92);
           box-shadow: 0 8px 30px rgba(30, 64, 175, .045);
           backdrop-filter: blur(14px);
           transition:
@@ -200,11 +300,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .incident-animate,
-          .incident-delay-1,
-          .incident-delay-2,
-          .incident-delay-3,
-          .incident-delay-4 {
+          .incident-animate {
             animation: none;
           }
 
@@ -219,11 +315,12 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
         }
       `}</style>
 
-      {/* Soft background decorations */}
+      {/* Background decorations */}
       <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-blue-200/25 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -left-28 h-96 w-96 rounded-full bg-sky-200/30 blur-3xl" />
 
       <div className="relative mx-auto w-full max-w-7xl">
+
         {/* Navigation */}
         <div className="incident-animate mb-7 flex flex-wrap items-center justify-between gap-4">
           <Link
@@ -258,7 +355,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 <ShieldAlert size={14} />
                 {isOwner
                   ? "Your Reported Emergency"
-                  : "Incident Tracking Review"}
+                  : "Incident Tracking"}
               </div>
 
               <h1 className="break-words text-2xl font-black tracking-tight text-slate-900 sm:text-3xl lg:text-4xl">
@@ -279,7 +376,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-extrabold uppercase tracking-wider ${severityStyle}`}
               >
                 <Activity size={15} />
-                {severity} PRIORITY
+                {formatLabel(severity)} Priority
               </span>
 
               <span
@@ -290,7 +387,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 ) : (
                   <Clock size={15} />
                 )}
-                {status.replaceAll("_", " ")}
+                {formatLabel(status)}
               </span>
             </div>
           </div>
@@ -298,7 +395,9 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
 
         {/* Main layout */}
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,.75fr)]">
+
           <section className="min-w-0 space-y-6">
+
             {/* Incident information */}
             <div className="incident-card incident-animate incident-delay-1 rounded-3xl p-5 sm:p-7">
               <div className="mb-5 flex items-center gap-3">
@@ -311,7 +410,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                     Incident Information
                   </h2>
                   <p className="mt-0.5 text-sm text-slate-500">
-                    Report details and emergency information
+                    Your report details and emergency information
                   </p>
                 </div>
               </div>
@@ -320,6 +419,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
                   Description
                 </p>
+
                 <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
                   {incident.description || "No description provided."}
                 </p>
@@ -329,10 +429,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 <Info
                   icon={<Activity size={18} />}
                   label="Incident type"
-                  value={
-                    incident.incident_type?.replaceAll("_", " ") ||
-                    "GENERAL"
-                  }
+                  value={formatLabel(incident.incident_type)}
                 />
 
                 <Info
@@ -346,7 +443,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                   label="Address"
                   value={
                     incident.address ||
-                    "Coordinates logged via PostGIS point"
+                    "Location coordinates recorded"
                   }
                 />
 
@@ -361,7 +458,11 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 <Info
                   icon={<HeartPulse size={18} />}
                   label="Medical assistance"
-                  value={incident.medical_required ? "Required" : "Not specified"}
+                  value={
+                    incident.medical_required
+                      ? "Required"
+                      : "Not specified"
+                  }
                 />
 
                 <Info
@@ -376,70 +477,205 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* AI analysis */}
-            {incident.ai_analysis && (
-              <div className="incident-card incident-animate incident-delay-2 rounded-3xl p-5 sm:p-7">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="incident-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                    <ShieldAlert size={21} />
+            {/* Citizen-friendly incident intelligence */}
+            <section className="incident-card incident-animate incident-delay-2 overflow-hidden rounded-3xl">
+              <div className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
+                <div className="incident-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                  <ShieldAlert size={21} />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">
+                    ResQAI Incident Assessment
+                  </h2>
+                  <p className="mt-0.5 text-sm text-slate-500">
+                    Initial assessment to guide emergency response
+                  </p>
+                </div>
+              </div>
+
+              {analysis ? (
+                <div className="space-y-6 p-5 sm:p-6">
+
+                  {/* Assessment summary */}
+                  <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50/60 p-5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                      Initial assessment
+                    </p>
+
+                    <h3 className="mt-2 text-xl font-extrabold text-slate-900">
+                      {incidentTypeLabels[detectedType ?? ""] ??
+                        "Emergency incident identified"}
+                    </h3>
+
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Based on the information provided in your
+                      report, ResQAI has generated an initial
+                      assessment and identified potentially relevant
+                      emergency support.
+                    </p>
                   </div>
 
+                  {/* Severity */}
                   <div>
-                    <h2 className="text-lg font-extrabold text-slate-900">
-                      AI Classification & Intelligence
-                    </h2>
-                    <p className="mt-0.5 text-sm text-slate-500">
-                      Analysis recorded for this incident
+                    <p className="mb-3 text-sm font-bold text-slate-800">
+                      Assessed severity
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span
+                        className={`rounded-full border px-4 py-2 text-sm font-extrabold ${
+                          severityStyles[assessedSeverity] ??
+                          "border-slate-200 bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        {formatLabel(assessedSeverity)} Priority
+                      </span>
+
+                      <span className="text-xs text-slate-500">
+                        Preliminary assessment
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Recommended resources */}
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">
+                      Recommended emergency support
+                    </h3>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      These are recommendations, not confirmation
+                      of dispatch.
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {recommendedTypes.length > 0 ? (
+                        recommendedTypes.map((type) => (
+                          <span
+                            key={type}
+                            className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700"
+                          >
+                            <CheckCircle2 size={16} />
+                            {resourceLabels[type] ?? formatLabel(type)}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-500">
+                          Support requirements are still being assessed.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Next steps */}
+                  <div className="rounded-2xl border border-slate-200 p-5">
+                    <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                      <ClipboardCheck
+                        size={18}
+                        className="text-blue-600"
+                      />
+                      What happens next?
+                    </h3>
+
+                    <div className="mt-5 space-y-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                          <CheckCircle2 size={17} />
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">
+                            Initial assessment generated
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            Your report has been assessed using
+                            ResQAI's AI based analysis system.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                          <Clock size={17} />
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">
+                            {requiresHumanReview
+                              ? "Human verification required"
+                              : "Assessment available for review"}
+                          </p>
+
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            An authorized response team member
+                            must review the assessment before
+                            response decisions are made.
+                          </p>
+                        </div>
+                      </div>
+
+                      {immediateActions.length > 0 && (
+                        <div className="border-t border-slate-100 pt-4">
+                          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Suggested response steps
+                          </p>
+
+                          <ul className="space-y-2">
+                            {immediateActions.map((action, index) => (
+                              <li
+                                key={`${index}-${action}`}
+                                className="flex items-start gap-2 text-sm leading-6 text-slate-600"
+                              >
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                                {action}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Human review notice */}
+                  <div className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+                    <AlertCircle
+                      size={20}
+                      className="mt-0.5 shrink-0 text-amber-600"
+                    />
+
+                    <p className="text-xs leading-5 text-amber-800">
+                      This is a preliminary automated assessment,
+                      not a confirmed emergency response or dispatch.
+                      Final decisions are made by authorized personnel.
                     </p>
                   </div>
                 </div>
+              ) : (
+                <div className="p-6">
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-5">
+                    <Clock
+                      size={21}
+                      className="mt-0.5 shrink-0 text-amber-600"
+                    />
 
-                <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-blue-50/60 p-4 sm:p-5">
-                  <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
-                    {typeof incident.ai_analysis === "string"
-                      ? incident.ai_analysis
-                      : JSON.stringify(incident.ai_analysis, null, 2)}
-                  </p>
-
-                  {incident.ai_confidence != null && (
-                    <div className="mt-5 border-t border-indigo-100 pt-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Confidence Score
-                        </span>
-                        <span className="text-lg font-black text-indigo-700">
-                          {Number(incident.ai_confidence) <= 1
-                            ? `${(
-                                Number(incident.ai_confidence) * 100
-                              ).toFixed(1)}%`
-                            : `${Number(incident.ai_confidence).toFixed(1)}%`}
-                        </span>
-                      </div>
-
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-700"
-                          style={{
-                            width: `${Math.max(
-                              0,
-                              Math.min(
-                                100,
-                                Number(incident.ai_confidence) <= 1
-                                  ? Number(incident.ai_confidence) * 100
-                                  : Number(incident.ai_confidence)
-                              )
-                            )}%`,
-                          }}
-                        />
-                      </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900">
+                        Assessment pending
+                      </h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        An initial assessment has not been generated
+                        for this report yet. Your incident remains
+                        available for review by authorized personnel.
+                      </p>
                     </div>
-                  )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </section>
 
-            {/* Dispatch status */}
-            <div className="incident-card incident-animate incident-delay-2 rounded-3xl p-5 sm:p-7">
+            {/* Emergency dispatch */}
+            <section className="incident-card incident-animate incident-delay-2 rounded-3xl p-5 sm:p-7">
               <div className="mb-5 flex items-center gap-3">
                 <div className="incident-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
                   <Truck size={22} />
@@ -447,79 +683,92 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
 
                 <div>
                   <h2 className="text-lg font-extrabold text-slate-900">
-                    Emergency Dispatch
+                    Emergency Response
                   </h2>
                   <p className="mt-0.5 text-sm text-slate-500">
-                    Resource association for this incident
+                    Actual resources assigned to your incident
                   </p>
                 </div>
               </div>
 
-              {dispatchedResource ? (
-                <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-4 sm:p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="incident-icon flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-                      <Truck size={23} />
-                    </div>
+              {assignedResources.length > 0 ? (
+                <div className="space-y-3">
+                  {assignedResources.map((resource) => (
+                    <div
+                      key={resource.id}
+                      className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-4 sm:p-5"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="incident-icon flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                          <Truck size={23} />
+                        </div>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-700">
-                          Associated Resource
-                        </span>
-                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase text-emerald-700">
-                          {dispatchedResource.status || "ASSIGNED"}
-                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-700">
+                              Assigned resource
+                            </span>
+
+                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold uppercase text-emerald-700">
+                              {formatLabel(resource.status)}
+                            </span>
+                          </div>
+
+                          <h3 className="mt-2 break-words text-base font-extrabold text-slate-900">
+                            {resource.name}
+                          </h3>
+
+                          <p className="mt-1 text-sm text-slate-600">
+                            {resourceLabels[resource.resource_type] ??
+                              formatLabel(resource.resource_type)}
+                          </p>
+                        </div>
                       </div>
-
-                      <h3 className="mt-2 break-words text-base font-extrabold text-slate-900">
-                        {dispatchedResource.name}
-                      </h3>
-
-                      <p className="mt-1 text-sm text-slate-600">
-                        {String(
-                          dispatchedResource.resource_type || "Emergency unit"
-                        ).replaceAll("_", " ")}
-                      </p>
                     </div>
-                  </div>
+                  ))}
 
-                  <p className="mt-4 text-sm leading-6 text-slate-600">
-                    A resource is associated with this incident. Its displayed
-                    status comes from the resource record.
+                  <p className="text-xs leading-5 text-slate-500">
+                    These resources are currently linked to your
+                    incident. Their displayed status comes from
+                    the resource records.
                   </p>
                 </div>
               ) : (
                 <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-white p-4 sm:p-5">
                   <div className="flex items-start gap-4">
                     <div className="incident-icon flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-                      <Search size={22} />
+                      <Clock size={22} />
                     </div>
 
                     <div>
                       <span className="text-xs font-extrabold uppercase tracking-wider text-amber-700">
-                        No Associated Resource
+                        Awaiting assignment
                       </span>
+
                       <h3 className="mt-2 text-base font-extrabold text-slate-900">
-                        Awaiting Resource Assignment
+                        No response resource assigned yet
                       </h3>
+
                       <p className="mt-1 text-sm leading-6 text-slate-600">
-                        No resource is currently linked to this incident.
-                        Authorized staff can review available resources below.
+                        Your report does not currently have an
+                        associated response resource. Authorized
+                        personnel can review and assign available
+                        resources.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </section>
 
-            {/* Resource assignment */}
-            {isAuthorizedResponderOrAdmin && !isClosed && (
-              <div className="incident-card incident-animate incident-delay-3 rounded-3xl p-4 sm:p-6">
+            {/* Resource assignment for staff */}
+            {isStaff && !isClosed && (
+              <section className="incident-card incident-animate incident-delay-3 rounded-3xl p-4 sm:p-6">
                 <div className="mb-4 flex items-center gap-3 px-1">
                   <div className="incident-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                     <Users size={20} />
                   </div>
+
                   <div>
                     <h2 className="text-lg font-extrabold text-slate-900">
                       Resource Assignment
@@ -538,13 +787,15 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                   availableResources={availableResources}
                   assignedResources={assignedResources}
                 />
-              </div>
+              </section>
             )}
           </section>
 
           {/* Right sidebar */}
           <aside className="incident-animate incident-delay-3 min-w-0 space-y-6 lg:sticky lg:top-6">
-            <div className="incident-card rounded-3xl p-5 sm:p-6">
+
+            {/* Response status */}
+            <section className="incident-card rounded-3xl p-5 sm:p-6">
               <div className="mb-5 flex items-center gap-3">
                 <div className="incident-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
                   <Activity size={21} />
@@ -555,18 +806,18 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                     Response Status
                   </h2>
                   <p className="mt-0.5 text-sm text-slate-500">
-                    Incident progress and actions
+                    Current incident progress
                   </p>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-white p-4">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Current Status
+                  Current status
                 </p>
 
                 <p className="mt-2 break-words text-xl font-black text-blue-800">
-                  {status.replaceAll("_", " ")}
+                  {formatLabel(status)}
                 </p>
 
                 <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-blue-100">
@@ -576,7 +827,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                         ? "w-full bg-emerald-500"
                         : status === "IN_PROGRESS"
                           ? "w-2/3 bg-blue-500"
-                          : status === "DISPATCHED"
+                          : status === "ASSIGNED"
                             ? "w-1/2 bg-blue-500"
                             : "w-1/4 bg-amber-400"
                     }`}
@@ -584,11 +835,11 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 </div>
               </div>
 
-              {isAuthorizedResponderOrAdmin ? (
+              {isStaff ? (
                 !isClosed ? (
                   <div className="mt-5 border-t border-slate-100 pt-5">
                     <h3 className="mb-3 text-sm font-bold text-slate-800">
-                      Update Incident
+                      Update incident
                     </h3>
 
                     <div className="incident-actions-theme">
@@ -604,13 +855,13 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                       size={20}
                       className="mt-0.5 shrink-0 text-emerald-600"
                     />
+
                     <div>
                       <p className="text-sm font-bold text-emerald-800">
                         Incident Closed
                       </p>
                       <p className="mt-1 text-xs leading-5 text-emerald-700">
-                        This incident has been resolved or cancelled. Status
-                        actions are no longer available.
+                        This incident has been resolved or cancelled.
                       </p>
                     </div>
                   </div>
@@ -618,19 +869,21 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
               ) : (
                 <div className="mt-5 border-t border-slate-100 pt-4">
                   <p className="text-sm leading-6 text-slate-600">
-                    Your report is registered with the ResQAI command center.
-                    This page displays the latest incident information
-                    available when it was loaded.
+                    Your report is registered with the ResQAI
+                    command center. The status shown here reflects
+                    the latest saved incident status when this
+                    page was loaded.
                   </p>
                 </div>
               )}
-            </div>
+            </section>
 
-            {/* Report summary */}
-            <div className="incident-card incident-animate incident-delay-4 rounded-3xl p-5 sm:p-6">
+            {/* Incident summary */}
+            <section className="incident-card incident-animate incident-delay-4 rounded-3xl p-5 sm:p-6">
               <h3 className="text-base font-extrabold text-slate-900">
                 Incident Summary
               </h3>
+
               <p className="mt-1 text-sm text-slate-500">
                 Quick reference
               </p>
@@ -638,7 +891,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
               <div className="mt-5 space-y-4">
                 <SummaryRow
                   label="Priority"
-                  value={severity}
+                  value={formatLabel(severity)}
                   dot={
                     severity === "HIGH" || severity === "CRITICAL"
                       ? "bg-red-500"
@@ -649,26 +902,55 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
                 />
 
                 <SummaryRow
-                  label="Resource linked"
-                  value={dispatchedResource ? "Yes" : "No"}
+                  label="Resources assigned"
+                  value={String(assignedResources.length)}
                   dot={
-                    dispatchedResource ? "bg-emerald-500" : "bg-slate-400"
+                    assignedResources.length > 0
+                      ? "bg-emerald-500"
+                      : "bg-slate-400"
                   }
                 />
 
                 <SummaryRow
                   label="Incident status"
                   value={isClosed ? "Closed" : "Active"}
-                  dot={isClosed ? "bg-emerald-500" : "bg-blue-500"}
+                  dot={
+                    isClosed
+                      ? "bg-emerald-500"
+                      : "bg-blue-500"
+                  }
                 />
 
                 <SummaryRow
-                  label="AI analysis"
-                  value={incident.ai_analysis ? "Available" : "Unavailable"}
-                  dot={incident.ai_analysis ? "bg-indigo-500" : "bg-slate-400"}
+                  label="Assessment"
+                  value={analysis ? "Available" : "Pending"}
+                  dot={
+                    analysis
+                      ? "bg-indigo-500"
+                      : "bg-slate-400"
+                  }
                 />
               </div>
-            </div>
+            </section>
+
+            {/* Helpful information */}
+            <section className="rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
+                  <UserCheck size={20} />
+                </div>
+
+                <h3 className="font-extrabold text-slate-900">
+                  Response information
+                </h3>
+              </div>
+
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                ResQAI provides preliminary decision support.
+                Emergency response and resource allocation decisions
+                are reviewed by authorized personnel.
+              </p>
+            </section>
           </aside>
         </div>
 
@@ -695,6 +977,7 @@ export default async function IncidentDetailsPage({ params }: PageProps) {
   );
 }
 
+// Reusable information card.
 function Info({
   icon,
   label,
@@ -711,7 +994,10 @@ function Info({
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-slate-500">{label}</p>
+        <p className="text-xs font-medium text-slate-500">
+          {label}
+        </p>
+
         <p className="mt-1 break-words text-sm font-bold capitalize leading-6 text-slate-800">
           {value}
         </p>
@@ -720,6 +1006,7 @@ function Info({
   );
 }
 
+// Reusable summary row.
 function SummaryRow({
   label,
   value,
@@ -731,7 +1018,9 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-sm text-slate-500">{label}</span>
+      <span className="text-sm text-slate-500">
+        {label}
+      </span>
 
       <span className="inline-flex items-center gap-2 text-right text-xs font-extrabold text-slate-700">
         <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />

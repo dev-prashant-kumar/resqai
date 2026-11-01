@@ -151,8 +151,8 @@ export default async function CitizenDashboard() {
           <h1 className="text-xl font-bold">Profile unavailable</h1>
 
           <p className="mt-3 text-sm leading-6 text-slate-500">
-            We couldn&apos;t load your account profile. Please sign in again.
-            If the problem continues, contact support.
+            We couldn&apos;t load your account profile. Please sign in again. If
+            the problem continues, contact support.
           </p>
 
           <form action={signOutAction}>
@@ -262,7 +262,9 @@ export default async function CitizenDashboard() {
 
       <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-8 sm:py-9">
         {/* Welcome panel */}
-        <section className={`${cardClass} mb-7 overflow-hidden p-5 sm:p-8 lg:p-9`}>
+        <section
+          className={`${cardClass} mb-7 overflow-hidden p-5 sm:p-8 lg:p-9`}
+        >
           <div
             aria-hidden="true"
             className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full bg-blue-400/15 blur-[75px] transition-transform duration-700 group-hover:scale-110"
@@ -386,7 +388,8 @@ export default async function CitizenDashboard() {
                 My emergency reports
               </h2>
               <p className="mt-2 text-xs leading-5 text-slate-500 sm:text-sm">
-                Review your 10 most recent reports and check their current status.
+                Review your 10 most recent reports and check their current
+                status.
               </p>
             </div>
 
@@ -443,9 +446,13 @@ export default async function CitizenDashboard() {
                 const IncidentIcon = getIncidentIcon(incident.incident_type);
 
                 return (
-                  <article
+                  <Link
                     key={incident.id}
-                    className="group/incident relative p-5 transition-colors duration-300 hover:bg-blue-50/60 sm:p-6"
+                    href={`/dashboard/incidents/${incident.id}`}
+                    className="group/incident relative block cursor-pointer p-5 transition-colors duration-300 hover:bg-blue-50/60 sm:p-6 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                    aria-label={`View details for ${
+                      incident.title || formatLabel(incident.incident_type)
+                    }`}
                   >
                     <div
                       aria-hidden="true"
@@ -459,7 +466,7 @@ export default async function CitizenDashboard() {
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <h3 className="break-words font-bold text-slate-900">
+                          <h3 className="break-words font-bold text-slate-900 transition-colors group-hover/incident:text-blue-700">
                             {incident.title ||
                               formatLabel(incident.incident_type)}
                           </h3>
@@ -501,6 +508,11 @@ export default async function CitizenDashboard() {
                                 formatLabel(incident.status)}
                             </span>
                           </p>
+
+                          <span className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-blue-600 transition-all group-hover/incident:gap-3">
+                            View incident details
+                            <ArrowRight className="h-4 w-4" />
+                          </span>
                         </div>
                       </div>
 
@@ -527,7 +539,7 @@ export default async function CitizenDashboard() {
                         </span>
                       </div>
                     </div>
-                  </article>
+                  </Link>
                 );
               })}
             </div>
@@ -573,9 +585,9 @@ export default async function CitizenDashboard() {
               </h2>
 
               <p className="mt-1.5 text-xs leading-6 text-slate-600 sm:text-sm">
-                If someone is in immediate danger, contact the appropriate
-                local emergency service directly. Do not wait for an online
-                report to be reviewed, verified, or assigned.
+                If someone is in immediate danger, contact the appropriate local
+                emergency service directly. Do not wait for an online report to
+                be reviewed, verified, or assigned.
               </p>
             </div>
           </div>
@@ -588,8 +600,6 @@ export default async function CitizenDashboard() {
           © {new Date().getFullYear()} RESQAI. Emergency information and
           community safety.
         </p>
-
-        
       </footer>
 
       {/* Page-specific animation styles */}
@@ -684,7 +694,9 @@ function MetricCard({
         </div>
       </div>
 
-      <p className={`text-2xl font-black tabular-nums sm:text-3xl ${colors.number}`}>
+      <p
+        className={`text-2xl font-black tabular-nums sm:text-3xl ${colors.number}`}
+      >
         {value}
       </p>
 
