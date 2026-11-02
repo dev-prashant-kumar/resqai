@@ -263,47 +263,54 @@ export default function ReportEmergencyPage() {
         evacuation_required: evacuationRequired,
       };
 
-      const { error: insertError } = await supabase
-        .from("incidents")
-        .insert({
-          reported_by: user.id,
-          user_id: user.id,
-          title: title.trim(),
-          description: description.trim(),
-          incident_type: incidentType,
-          severity: "HIGH",
-          status: "REPORTED",
-          affected_people: affectedCount,
-          flags,
-          image_url: uploadedImageUrl,
-          location: `POINT(${longitude} ${latitude})`,
-          address: address || null,
-        });
 
-      if (insertError) {
-        console.error("Supabase insert error:", insertError);
-        throw insertError;
-      }
+const response = await fetch("/api/incidents", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  credentials: "same-origin",
+  body: JSON.stringify({
+    title: title.trim(),
+    description: description.trim(),
+    incident_type: incidentType,
+    affected_people: affectedCount,
+    medical_required: medicalRequired,
+    evacuation_required: evacuationRequired,
+    flags: {
+      medical_required: medicalRequired,
+      evacuation_required: evacuationRequired,
+    },
+    image_url: uploadedImageUrl,
+    location: `POINT(${longitude} ${latitude})`,
+    address: address || null,
+  }),
+});
 
-      setSuccess(true);
+const result = await response.json();
 
-      window.setTimeout(() => {
-        router.push("/dashboard?reported=true");
-        router.refresh();
-      }, 1800);
-    } catch (submissionError: unknown) {
-      console.error("Emergency report error:", submissionError);
+if (!response.ok || !result.success) {
+  throw new Error(result.message || "Could not submit your report.");
+}
 
-      setError(
-        submissionError instanceof Error
-          ? submissionError.message
-          : "We couldn't submit your report. Please try again."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+// Report saved successfully
+setSuccess(true);
 
+window.setTimeout(() => {
+  router.push("/dashboard?reported=true");
+  router.refresh();
+}, 1800);
+} catch (submissionError: unknown) {
+  console.error("Emergency report error:", submissionError);
+
+  setError(
+    submissionError instanceof Error
+      ? submissionError.message
+      : "We couldn't submit your report. Please try again."
+  );
+} finally {
+  setLoading(false);
+};}
   return (
     <main className="report-page relative min-h-screen overflow-hidden bg-white px-4 py-5 text-slate-900 sm:px-6 sm:py-8">
       <style jsx global>{`

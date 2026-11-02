@@ -169,9 +169,13 @@ export default async function IncidentDetailsPage({
 
   const status = String(incident.status ?? "REPORTED").toUpperCase();
 
-  const severity = String(
-    incident.severity ?? "MEDIUM"
-  ).toUpperCase();
+const intelligence = getIntelligence(incident.ai_analysis);
+const analysis = intelligence?.analysis;
+const responsePlan = intelligence?.responsePlan;
+
+const severity = String(
+  analysis?.severity ?? incident.severity ?? "MEDIUM"
+).toUpperCase();
 
   const isClosed = ["RESOLVED", "CANCELLED"].includes(status);
 
@@ -217,10 +221,7 @@ export default async function IncidentDetailsPage({
   }
 
   // Read the saved rule-based assessment.
-  const intelligence = getIntelligence(incident.ai_analysis);
 
-  const analysis = intelligence?.analysis;
-  const responsePlan = intelligence?.responsePlan;
 
   const assessedSeverity = String(
     analysis?.severity ?? severity

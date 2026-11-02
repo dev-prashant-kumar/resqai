@@ -30,6 +30,11 @@ type Incident = {
   description: string | null;
   incident_type: string;
   severity: string;
+  ai_analysis: {
+    analysis?: {
+      severity?: string;
+    };
+  } | null;
   status: string;
   address: string | null;
   created_at: string;
@@ -177,24 +182,35 @@ export default async function CitizenDashboard() {
   const { data: incidentData, error: incidentsError } = await supabase
     .from("incidents")
     .select(
-      "id, title, description, incident_type, severity, status, address, created_at, affected_people"
-    )
+  "id, title, description, incident_type, severity, ai_analysis, status, address, created_at, affected_people"
+)
     .eq("reported_by", user.id)
     .order("created_at", { ascending: false });
 
-  const incidents = (incidentData ?? []) as Incident[];
-  const recentIncidents = incidents.slice(0, 10);
+ const incidents = (incidentData ?? []) as Incident[];
+
+const incidentsWithPriority = incidents.map((incident) => {
+  const priority =
+    incident.ai_analysis?.analysis?.severity ?? incident.severity;
+
+  return {
+    ...incident,
+    displaySeverity: priority.toUpperCase(),
+  };
+});
+
+const recentIncidents = incidentsWithPriority.slice(0, 10);
   const totalIncidents = incidents.length;
 
   const activeCount = incidents.filter((incident) =>
     activeStatuses.includes(incident.status)
   ).length;
 
-  const criticalCount = incidents.filter(
-    (incident) =>
-      incident.severity === "CRITICAL" &&
-      activeStatuses.includes(incident.status)
-  ).length;
+  const criticalCount = incidentsWithPriority.filter(
+  (incident) =>
+    incident.displaySeverity === "CRITICAL" &&
+    activeStatuses.includes(incident.status)
+).length;;
 
   const resolvedCount = incidents.filter(
     (incident) => incident.status === "RESOLVED"
@@ -519,11 +535,11 @@ export default async function CitizenDashboard() {
                       <div className="flex shrink-0 flex-wrap items-center gap-2 pl-0 sm:max-w-[230px] sm:justify-end sm:pl-4">
                         <span
                           className={`inline-flex items-center rounded-full border px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-wider ${
-                            severityStyles[incident.severity] ??
+                            severityStyles[incident.displaySeverity] ??
                             "border-slate-200 bg-slate-50 text-slate-600"
                           }`}
                         >
-                          {formatLabel(incident.severity)}
+                          {formatLabel(incident.displaySeverity)}
                         </span>
 
                         <span
