@@ -95,6 +95,53 @@ type Incident = {
   updated_at: string;
 };
 
+type AvailableResource = {
+  id: string;
+  name: string;
+  resource_type: string;
+  status: string;
+  capacity: number | null;
+  skills: string[] | null;
+  distance_km?: number | null;
+  organization: string | null;
+  organization_id: string | null;
+};
+
+type AssignedResource = {
+  id: string;
+  incident_id: string;
+  resource_id: string;
+  responder_id: string | null;
+  status: string;
+  distance_km: number | null;
+  estimated_response_minutes: number | null;
+  allocation_score: number | null;
+  assigned_at: string;
+  accepted_at: string | null;
+  completed_at: string | null;
+  resources: {
+    id: string;
+    name: string;
+    resource_type: string;
+    capacity: number | null;
+    skills: string[] | null;
+    contact_phone: string | null;
+    organization: string | null;
+  } | null;
+};
+
+type AvailableResponder = {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  organization_id: string;
+  organization_name: string;
+  designation: string | null;
+  employee_id: string | null;
+  membership_role: string;
+};
+
+
 type ApiResponse = {
   success?: boolean;
   message?: string;
@@ -103,6 +150,9 @@ type ApiResponse = {
   incidents?: Incident[];
   total?: number;
   signed_url?: string;
+  resources?: AvailableResource[];
+  assignments?: AssignedResource[];
+  responders?: AvailableResponder[];
 };
 
 const panelClass =
@@ -165,11 +215,29 @@ export default function AdminDashboardPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [incidentLoading, setIncidentLoading] = useState(true);
   const [incidentError, setIncidentError] = useState("");
-  const [incidentFilter, setIncidentFilter] =
-    useState<IncidentFilter>("ALL");
+  const [incidentFilter, setIncidentFilter] = useState<IncidentFilter>("ALL");
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(
-    null,
+    null
   );
+  const [assignedResources, setAssignedResources] = useState<
+    AssignedResource[]
+  >([]);
+  const [assignedResourcesLoading, setAssignedResourcesLoading] =
+    useState(false);
+  const [assignedResourcesError, setAssignedResourcesError] = useState("");
+
+  // Resource assignment state
+  const [availableResources, setAvailableResources] = useState<
+    AvailableResource[]
+  >([]);
+  const [resourceLoading, setResourceLoading] = useState(false);
+  const [resourceError, setResourceError] = useState("");
+  const [selectedResourceId, setSelectedResourceId] = useState("");
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
+  const [availableResponders, setAvailableResponders] = useState<
+    AvailableResponder[]
+  >([]);
+  const [selectedResponderId, setSelectedResponderId] = useState("");
 
   // Shared alerts
   const [error, setError] = useState("");
@@ -199,7 +267,7 @@ export default function AdminDashboardPage() {
 
       if (!response.ok || !result.success) {
         throw new Error(
-          result.message || "Unable to load verification applications.",
+          result.message || "Unable to load verification applications."
         );
       }
 
@@ -208,14 +276,13 @@ export default function AdminDashboardPage() {
       setReviewerRole(result.reviewer_role ?? "");
 
       setSelectedId((currentId) =>
-        currentId &&
-        nextApplications.some((item) => item.id === currentId)
+        currentId && nextApplications.some((item) => item.id === currentId)
           ? currentId
-          : (nextApplications[0]?.id ?? null),
+          : nextApplications[0]?.id ?? null
       );
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to load applications.",
+        err instanceof Error ? err.message : "Unable to load applications."
       );
     } finally {
       setLoading(false);
@@ -252,19 +319,116 @@ export default function AdminDashboardPage() {
       setIncidents(nextIncidents);
 
       setSelectedIncidentId((currentId) =>
-        currentId &&
-        nextIncidents.some((incident) => incident.id === currentId)
+        currentId && nextIncidents.some((incident) => incident.id === currentId)
           ? currentId
-          : (nextIncidents[0]?.id ?? null),
+          : nextIncidents[0]?.id ?? null
       );
     } catch (err) {
       setIncidentError(
-        err instanceof Error ? err.message : "Unable to load incidents.",
+        err instanceof Error ? err.message : "Unable to load incidents."
       );
     } finally {
       setIncidentLoading(false);
     }
   }, [router]);
+
+  const loadAssignedResources = useCallback(async (incidentId: string) => {
+    setAssignedResourcesLoading(true);
+    setAssignedResourcesError("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/assignments?incidentId=${encodeURIComponent(incidentId)}`,
+        {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store",
+        }
+      );
+
+      const result = (await response.json()) as ApiResponse;
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to load assigned resources.");
+      }
+
+      setAssignedResources(result.assignments ?? []);
+    } catch (error) {
+      setAssignedResourcesError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load assigned resources."
+      );
+    } finally {
+      setAssignedResourcesLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (!selectedIncidentId) {
+      setAssignedResources([]);
+      return;
+    }
+
+    void loadAssignedResources(selectedIncidentId);
+  }, [selectedIncidentId, loadAssignedResources]);
+
+  const loadAvailableResources = useCallback(
+    async (incidentId: string) => {
+      setResourceLoading(true);
+      setResourceError("");
+      setAvailableResponders([]);
+      setSelectedResponderId("");
+
+      try {
+        const response = await fetch(
+          `/api/admin/assignments?incidentId=${encodeURIComponent(incidentId)}`,
+          {
+            method: "GET",
+            credentials: "same-origin",
+            cache: "no-store",
+          }
+        );
+
+        const result = (await response.json()) as ApiResponse;
+
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.message || "Unable to load available resources."
+          );
+        }
+
+        const resources = result.resources ?? [];
+        setAvailableResponders(result.responders ?? []);
+
+        setAvailableResources(resources);
+        setSelectedResourceId(resources[0]?.id ?? "");
+      } catch (err) {
+        setResourceError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load available resources."
+        );
+      } finally {
+        setResourceLoading(false);
+      }
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    if (!selectedIncidentId) {
+      setAvailableResources([]);
+      setSelectedResourceId("");
+      return;
+    }
+
+    void loadAvailableResources(selectedIncidentId);
+  }, [selectedIncidentId, loadAvailableResources]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -277,21 +441,20 @@ export default function AdminDashboardPage() {
 
   // Verification calculations
   const pendingCount = applications.filter(
-    (item) => item.application_status.toUpperCase() === "PENDING",
+    (item) => item.application_status.toUpperCase() === "PENDING"
   ).length;
 
   const approvedCount = applications.filter(
-    (item) => item.application_status.toUpperCase() === "APPROVED",
+    (item) => item.application_status.toUpperCase() === "APPROVED"
   ).length;
 
   const rejectedCount = applications.filter(
-    (item) => item.application_status.toUpperCase() === "REJECTED",
+    (item) => item.application_status.toUpperCase() === "REJECTED"
   ).length;
 
   const visibleApplications = applications.filter(
     (item) =>
-      filter === "ALL" ||
-      item.application_status.toUpperCase() === filter,
+      filter === "ALL" || item.application_status.toUpperCase() === filter
   );
 
   const selectedApplication =
@@ -307,24 +470,23 @@ export default function AdminDashboardPage() {
         if (incidentFilter === "ALL") return true;
         return getIncidentSeverity(incident).toUpperCase() === incidentFilter;
       }),
-    [incidents, incidentFilter],
+    [incidents, incidentFilter]
   );
 
   const selectedIncident =
     incidents.find((incident) => incident.id === selectedIncidentId) ?? null;
 
   const criticalCount = incidents.filter(
-    (item) => getIncidentSeverity(item).toUpperCase() === "CRITICAL",
+    (item) => getIncidentSeverity(item).toUpperCase() === "CRITICAL"
   ).length;
 
   const openIncidentCount = incidents.filter(
-    (item) =>
-      !["RESOLVED", "CANCELLED"].includes(item.status.toUpperCase()),
+    (item) => !["RESOLVED", "CANCELLED"].includes(item.status.toUpperCase())
   ).length;
 
   async function previewDocument(
     applicationId: string,
-    type: "authorization" | "identity",
+    type: "authorization" | "identity"
   ) {
     const key = `${applicationId}:${type}`;
     setDocumentBusy(key);
@@ -339,7 +501,7 @@ export default function AdminDashboardPage() {
         {
           credentials: "same-origin",
           cache: "no-store",
-        },
+        }
       );
 
       const result = (await response.json()) as ApiResponse;
@@ -357,16 +519,116 @@ export default function AdminDashboardPage() {
     } catch (err) {
       previewTab?.close();
       setError(
-        err instanceof Error ? err.message : "Unable to preview the document.",
+        err instanceof Error ? err.message : "Unable to preview the document."
       );
     } finally {
       setDocumentBusy(null);
     }
   }
 
+  async function assignSelectedResource() {
+    if (!selectedIncident || !selectedResourceId) {
+      setError("Select an incident and an available resource.");
+      return;
+    }
+
+    const resource = availableResources.find(
+      (item) => item.id === selectedResourceId
+    );
+
+    if (!resource) {
+      setError("The selected resource is no longer available.");
+      return;
+    }
+
+    const organizationResponders = availableResponders.filter(
+      (responder) => responder.organization_id === resource.organization_id
+    );
+
+    if (organizationResponders.length === 0) {
+      setError(
+        "No approved responders are available for this resource's organization."
+      );
+      return;
+    }
+
+    if (!selectedResponderId) {
+      setError("Select a responder before assigning the resource.");
+      return;
+    }
+
+    const responder = organizationResponders.find(
+      (item) => item.id === selectedResponderId
+    );
+
+    if (!responder) {
+      setError("Select a valid responder for this resource.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Assign "${resource.name}" to "${
+        responder.full_name || "Responder"
+      }" for "${selectedIncident.title}"?`
+    );
+
+    if (!confirmed) return;
+
+    setAssignmentBusy(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await fetch("/api/admin/assignments", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          incidentId: selectedIncident.id,
+          resourceId: resource.id,
+          responderId: responder.id,
+        }),
+      });
+
+      const result = (await response.json()) as ApiResponse;
+
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Unable to assign this resource.");
+      }
+
+      setNotice(
+        `${resource.name} assigned to ${
+          responder.full_name || "responder"
+        } successfully.`
+      );
+
+      setSelectedResponderId("");
+
+      if (selectedIncidentId) {
+        await Promise.all([
+          loadAvailableResources(selectedIncidentId),
+          loadAssignedResources(selectedIncidentId),
+        ]);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "An unexpected error occurred."
+      );
+    } finally {
+      setAssignmentBusy(false);
+    }
+  }
+
   async function reviewApplication(
     application: Application,
-    decision: "APPROVE" | "REJECT",
+    decision: "APPROVE" | "REJECT"
   ) {
     if (application.application_status.toUpperCase() !== "PENDING") {
       setError("Only pending applications can be reviewed.");
@@ -386,7 +648,9 @@ export default function AdminDashboardPage() {
       }
     } else {
       const confirmed = window.confirm(
-        `Approve "${application.organization_name || "this organization"}"? This will mark the organization as verified.`,
+        `Approve "${
+          application.organization_name || "this organization"
+        }"? This will mark the organization as verified.`
       );
 
       if (!confirmed) return;
@@ -414,7 +678,7 @@ export default function AdminDashboardPage() {
               ? { rejection_reason: rejectionReason }
               : {}),
           }),
-        },
+        }
       );
 
       const result = (await response.json()) as ApiResponse;
@@ -425,21 +689,19 @@ export default function AdminDashboardPage() {
       }
 
       if (!response.ok || !result.success) {
-        throw new Error(
-          result.message || "Unable to review this application.",
-        );
+        throw new Error(result.message || "Unable to review this application.");
       }
 
       setNotice(
         decision === "APPROVE"
           ? "Application approved successfully."
-          : "Application rejected successfully.",
+          : "Application rejected successfully."
       );
 
       await loadApplications();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "An unexpected error occurred.",
+        err instanceof Error ? err.message : "An unexpected error occurred."
       );
     } finally {
       setBusyId(null);
@@ -516,12 +778,20 @@ export default function AdminDashboardPage() {
           animation-duration: 21s;
         }
         @keyframes adminFloat {
-          0% { transform: translate3d(0, 0, 0) scale(1); }
-          50% { transform: translate3d(28px, -24px, 0) scale(1.08); }
-          100% { transform: translate3d(-20px, 26px, 0) scale(0.96); }
+          0% {
+            transform: translate3d(0, 0, 0) scale(1);
+          }
+          50% {
+            transform: translate3d(28px, -24px, 0) scale(1.08);
+          }
+          100% {
+            transform: translate3d(-20px, 26px, 0) scale(0.96);
+          }
         }
         @media (prefers-reduced-motion: reduce) {
-          .admin-orb { animation: none; }
+          .admin-orb {
+            animation: none;
+          }
         }
       `}</style>
 
@@ -716,7 +986,13 @@ export default function AdminDashboardPage() {
 
               <div className="flex flex-wrap gap-1.5 rounded-2xl border border-slate-200 bg-white/80 p-1.5 shadow-sm">
                 {(
-                  ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"] as IncidentFilter[]
+                  [
+                    "ALL",
+                    "CRITICAL",
+                    "HIGH",
+                    "MEDIUM",
+                    "LOW",
+                  ] as IncidentFilter[]
                 ).map((value) => (
                   <button
                     type="button"
@@ -815,14 +1091,14 @@ export default function AdminDashboardPage() {
                             <div className="flex shrink-0 flex-col items-end gap-2">
                               <span
                                 className={`rounded-full border px-2.5 py-1 text-[10px] font-extrabold ${statusClasses(
-                                  severity,
+                                  severity
                                 )}`}
                               >
                                 {severity}
                               </span>
                               <span
                                 className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${statusClasses(
-                                  incident.status,
+                                  incident.status
                                 )}`}
                               >
                                 {incident.status.replaceAll("_", " ")}
@@ -872,7 +1148,7 @@ export default function AdminDashboardPage() {
                           </div>
                           <span
                             className={`rounded-full border px-3 py-1 text-xs font-extrabold ${statusClasses(
-                              getIncidentSeverity(selectedIncident),
+                              getIncidentSeverity(selectedIncident)
                             )}`}
                           >
                             {getIncidentSeverity(selectedIncident)}
@@ -907,7 +1183,8 @@ export default function AdminDashboardPage() {
                               People affected
                             </p>
                             <p className="mt-1 text-sm font-bold text-slate-800">
-                              {selectedIncident.affected_people ?? "Not provided"}
+                              {selectedIncident.affected_people ??
+                                "Not provided"}
                             </p>
                           </div>
                           <div>
@@ -918,8 +1195,8 @@ export default function AdminDashboardPage() {
                               {selectedIncident.medical_required === null
                                 ? "Not specified"
                                 : selectedIncident.medical_required
-                                  ? "Required"
-                                  : "Not required"}
+                                ? "Required"
+                                : "Not required"}
                             </p>
                           </div>
                           <div>
@@ -930,8 +1207,8 @@ export default function AdminDashboardPage() {
                               {selectedIncident.evacuation_required === null
                                 ? "Not specified"
                                 : selectedIncident.evacuation_required
-                                  ? "Required"
-                                  : "Not required"}
+                                ? "Required"
+                                : "Not required"}
                             </p>
                           </div>
                         </div>
@@ -998,7 +1275,7 @@ export default function AdminDashboardPage() {
                                 <p className="mt-1 text-sm font-extrabold text-slate-900">
                                   {selectedIncident.ai_analysis.analysis.detected_type?.replaceAll(
                                     "_",
-                                    " ",
+                                    " "
                                   ) || selectedIncident.incident_type}
                                 </p>
                               </div>
@@ -1007,20 +1284,24 @@ export default function AdminDashboardPage() {
                                   Risk score
                                 </p>
                                 <p className="mt-1 text-sm font-extrabold text-slate-900">
-                                  {selectedIncident.ai_analysis.analysis.risk_score ??
-                                    "Not available"}
+                                  {selectedIncident.ai_analysis.analysis
+                                    .risk_score ?? "Not available"}
                                 </p>
                               </div>
                             </div>
 
-                            {selectedIncident.ai_analysis.analysis.explanation && (
+                            {selectedIncident.ai_analysis.analysis
+                              .explanation && (
                               <p className="mt-4 text-sm leading-6 text-slate-700">
-                                {selectedIncident.ai_analysis.analysis.explanation}
+                                {
+                                  selectedIncident.ai_analysis.analysis
+                                    .explanation
+                                }
                               </p>
                             )}
 
-                            {!!selectedIncident.ai_analysis.analysis.risk_factors
-                              ?.length && (
+                            {!!selectedIncident.ai_analysis.analysis
+                              .risk_factors?.length && (
                               <div className="mt-4">
                                 <p className="text-xs font-bold text-slate-700">
                                   Risk factors
@@ -1031,7 +1312,7 @@ export default function AdminDashboardPage() {
                                       <li key={`${factor}-${index}`}>
                                         {factor}
                                       </li>
-                                    ),
+                                    )
                                   )}
                                 </ul>
                               </div>
@@ -1052,7 +1333,7 @@ export default function AdminDashboardPage() {
                                       >
                                         {resource.replaceAll("_", " ")}
                                       </span>
-                                    ),
+                                    )
                                   )}
                                 </div>
                               </div>
@@ -1061,7 +1342,7 @@ export default function AdminDashboardPage() {
                             <p className="mt-4 text-xs text-slate-500">
                               Generated:{" "}
                               {formatDate(
-                                selectedIncident.ai_analysis.generated_at,
+                                selectedIncident.ai_analysis.generated_at
                               )}
                             </p>
 
@@ -1087,10 +1368,14 @@ export default function AdminDashboardPage() {
                             Suggested response plan
                           </h4>
 
-                          {selectedIncident.ai_analysis.responsePlan.priority && (
+                          {selectedIncident.ai_analysis.responsePlan
+                            .priority && (
                             <p className="mt-2 text-sm text-slate-700">
                               <span className="font-semibold">Priority: </span>
-                              {selectedIncident.ai_analysis.responsePlan.priority}
+                              {
+                                selectedIncident.ai_analysis.responsePlan
+                                  .priority
+                              }
                             </p>
                           )}
 
@@ -1104,7 +1389,7 @@ export default function AdminDashboardPage() {
                                 {selectedIncident.ai_analysis.responsePlan.immediate_actions.map(
                                   (action, index) => (
                                     <li key={`${action}-${index}`}>{action}</li>
-                                  ),
+                                  )
                                 )}
                               </ul>
                             </div>
@@ -1120,15 +1405,378 @@ export default function AdminDashboardPage() {
                                 {selectedIncident.ai_analysis.responsePlan.operator_notes.map(
                                   (note, index) => (
                                     <li key={`${note}-${index}`}>{note}</li>
-                                  ),
+                                  )
                                 )}
                               </ul>
                             </div>
                           )}
                         </div>
                       )}
+                      {/* Assigned resources */}
+                      <div className="mt-5 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-100 bg-blue-50/70 px-5 py-4">
+                          <div>
+                            <h4 className="flex items-center gap-2 text-sm font-extrabold text-slate-900">
+                              <Users className="h-4 w-4 text-blue-600" />
+                              Assigned resources
+                            </h4>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Resources manually assigned to this incident
+                            </p>
+                          </div>
+
+                          <span className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-bold text-blue-700">
+                            {assignedResources.length} assigned
+                          </span>
+                        </div>
+
+                        <div className="p-4">
+                          {assignedResourcesLoading ? (
+                            <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
+                              <LoaderCircle className="h-4 w-4 animate-spin" />
+                              Loading assigned resources...
+                            </div>
+                          ) : assignedResourcesError ? (
+                            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                              {assignedResourcesError}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (selectedIncidentId) {
+                                    void loadAssignedResources(
+                                      selectedIncidentId
+                                    );
+                                  }
+                                }}
+                                className="ml-2 font-bold underline"
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          ) : assignedResources.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+                              <Users className="mx-auto h-8 w-8 text-slate-300" />
+                              <p className="mt-2 text-sm font-semibold text-slate-700">
+                                No resources assigned yet
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Choose an available resource below to assign it.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {assignedResources.map((assignment) => {
+                                const resource = assignment.resources;
+
+                                return (
+                                  <div
+                                    key={assignment.id}
+                                    className="rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div className="flex items-start gap-3">
+                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                                          <Building2 className="h-5 w-5" />
+                                        </div>
+
+                                        <div>
+                                          <p className="font-bold text-slate-900">
+                                            {resource?.name ??
+                                              "Resource details unavailable"}
+                                          </p>
+
+                                          <p className="mt-1 text-xs font-medium text-slate-500">
+                                            {resource?.resource_type?.replaceAll(
+                                              "_",
+                                              " "
+                                            ) ?? "Unknown resource type"}
+                                          </p>
+
+                                          {resource?.organization && (
+                                            <p className="mt-1 text-xs text-slate-500">
+                                              {resource.organization}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <span
+                                        className={`rounded-full border px-3 py-1 text-xs font-bold ${statusClasses(
+                                          assignment.status
+                                        )}`}
+                                      >
+                                        {assignment.status.replaceAll("_", " ")}
+                                      </span>
+                                    </div>
+
+                                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                        <p className="text-xs text-slate-500">
+                                          Assigned at
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                                          {formatDate(assignment.assigned_at)}
+                                        </p>
+                                      </div>
+
+                                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                        <p className="text-xs text-slate-500">
+                                          Distance
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                                          {assignment.distance_km != null
+                                            ? `${assignment.distance_km.toFixed(
+                                                1
+                                              )} km`
+                                            : "Not available"}
+                                        </p>
+                                      </div>
+
+                                      {assignment.estimated_response_minutes !=
+                                        null && (
+                                        <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                          <p className="text-xs text-slate-500">
+                                            Estimated response time
+                                          </p>
+                                          <p className="mt-1 text-sm font-semibold text-slate-800">
+                                            {
+                                              assignment.estimated_response_minutes
+                                            }{" "}
+                                            minutes
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {resource?.capacity != null && (
+                                        <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                          <p className="text-xs text-slate-500">
+                                            Capacity
+                                          </p>
+                                          <p className="mt-1 text-sm font-semibold text-slate-800">
+                                            {resource.capacity}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {!!resource?.skills?.length && (
+                                      <div className="mt-3">
+                                        <p className="mb-2 text-xs font-bold text-slate-500">
+                                          Skills
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {resource.skills.map((skill) => (
+                                            <span
+                                              key={skill}
+                                              className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600"
+                                            >
+                                              {skill.replaceAll("_", " ")}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </>
                   )}
+
+                  {/* Manual resource assignment */}
+                  <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h4 className="flex items-center gap-2 text-sm font-extrabold text-indigo-900">
+                          <Users className="h-4 w-4" />
+                          Resource assignment
+                        </h4>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          Review the available recommendations and confirm
+                          assignment manually.
+                        </p>
+                      </div>
+
+                      <span className="rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-[10px] font-bold text-indigo-700">
+                        ADMIN ACTION
+                      </span>
+                    </div>
+
+                    {resourceLoading ? (
+                      <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+                        <LoaderCircle className="h-4 w-4 animate-spin text-indigo-600" />
+                        Loading available resources...
+                      </div>
+                    ) : resourceError ? (
+                      <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        {resourceError}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void loadAvailableResources(selectedIncident.id)
+                          }
+                          className="ml-2 font-bold underline"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : availableResources.length === 0 ? (
+                      <p className="mt-4 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
+                        No available resources match the current
+                        recommendations.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="mt-4 space-y-3">
+                          {availableResources.map((resource) => (
+                            <label
+                              key={resource.id}
+                              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                                selectedResourceId === resource.id
+                                  ? "border-indigo-300 bg-white shadow-sm"
+                                  : "border-slate-200 bg-white/70 hover:border-indigo-200"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="selected-resource"
+                                value={resource.id}
+                                checked={selectedResourceId === resource.id}
+                                onChange={() =>
+                                  setSelectedResourceId(resource.id)
+                                }
+                                className="mt-1 accent-indigo-600"
+                              />
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <p className="break-words text-sm font-bold text-slate-900">
+                                    {resource.name}
+                                  </p>
+
+                                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                    AVAILABLE
+                                  </span>
+                                </div>
+
+                                <p className="mt-1 text-xs text-slate-600">
+                                  {resource.resource_type.replaceAll("_", " ")}
+                                  {resource.capacity !== null
+                                    ? ` • Capacity: ${resource.capacity}`
+                                    : ""}
+                                </p>
+
+                                {resource.distance_km !== null && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    <MapPin className="mr-1 inline h-3.5 w-3.5" />
+                                    {Number(resource.distance_km).toFixed(1)} km
+                                    away
+                                  </p>
+                                )}
+
+                                {!!resource.skills?.length && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    Skills: {resource.skills.join(", ")}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+
+                        {selectedResourceId && (
+                          <div className="mt-4 rounded-xl border border-indigo-200 bg-white p-4">
+                            <label
+                              htmlFor="selected-responder"
+                              className="mb-2 block text-sm font-bold text-slate-800"
+                            >
+                              Select assigned responder
+                            </label>
+
+                            {(() => {
+                              const selectedResource = availableResources.find(
+                                (item) => item.id === selectedResourceId
+                              );
+
+                              const organizationResponders =
+                                availableResponders.filter(
+                                  (responder) =>
+                                    responder.organization_id ===
+                                    selectedResource?.organization_id
+                                );
+
+                              return organizationResponders.length > 0 ? (
+                                <select
+                                  id="selected-responder"
+                                  value={selectedResponderId}
+                                  onChange={(event) =>
+                                    setSelectedResponderId(event.target.value)
+                                  }
+                                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                                >
+                                  <option value="">Choose a responder</option>
+
+                                  {organizationResponders.map((responder) => (
+                                    <option
+                                      key={responder.id}
+                                      value={responder.id}
+                                    >
+                                      {responder.full_name ||
+                                        "Unnamed responder"}
+                                      {responder.designation
+                                        ? ` — ${responder.designation}`
+                                        : ""}
+                                      {responder.phone
+                                        ? ` (${responder.phone})`
+                                        : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                                  No approved responders found in this
+                                  resource's organization. Verify the
+                                  organization and approve its responder
+                                  memberships before assigning.
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => void assignSelectedResource()}
+                          disabled={
+                            !selectedResourceId ||
+                            !selectedResponderId ||
+                            assignmentBusy
+                          }
+                          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {assignmentBusy ? (
+                            <LoaderCircle className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4" />
+                          )}
+
+                          {assignmentBusy
+                            ? "Assigning resource..."
+                            : "Assign resource to responder"}
+                        </button>
+                      </>
+                    )}
+
+                    <p className="mt-3 text-[11px] leading-5 text-slate-500">
+                      Assignment requires Admin confirmation. The AI system only
+                      provides recommendations and does not dispatch resources
+                      automatically.
+                    </p>
+                  </div>
                 </section>
               </div>
             )}
@@ -1143,8 +1791,8 @@ export default function AdminDashboardPage() {
                 Responder verification
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Review organization applications, inspect documents, and
-                approve or reject verification requests.
+                Review organization applications, inspect documents, and approve
+                or reject verification requests.
               </p>
             </div>
 
@@ -1202,7 +1850,7 @@ export default function AdminDashboardPage() {
                     >
                       {value === "ALL" ? "All" : value}
                     </button>
-                  ),
+                  )
                 )}
               </div>
             </div>
@@ -1263,7 +1911,7 @@ export default function AdminDashboardPage() {
                           </div>
                           <span
                             className={`rounded-full border px-2.5 py-1 text-[10px] font-extrabold ${statusClasses(
-                              application.application_status,
+                              application.application_status
                             )}`}
                           >
                             {application.application_status}
@@ -1301,7 +1949,7 @@ export default function AdminDashboardPage() {
                         </div>
                         <span
                           className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-extrabold ${statusClasses(
-                            selectedApplication.application_status,
+                            selectedApplication.application_status
                           )}`}
                         >
                           {selectedApplication.application_status}
@@ -1310,8 +1958,14 @@ export default function AdminDashboardPage() {
 
                       <div className="space-y-4">
                         {[
-                          ["Organization type", selectedApplication.organization_type],
-                          ["Registration number", selectedApplication.organization_registration_number],
+                          [
+                            "Organization type",
+                            selectedApplication.organization_type,
+                          ],
+                          [
+                            "Registration number",
+                            selectedApplication.organization_registration_number,
+                          ],
                           ["Email", selectedApplication.organization_email],
                           ["Phone", selectedApplication.organization_phone],
                           [
@@ -1326,12 +1980,30 @@ export default function AdminDashboardPage() {
                               .join(", "),
                           ],
                           ["Website", selectedApplication.organization_website],
-                          ["Representative", selectedApplication.representative_contact_name],
-                          ["Designation", selectedApplication.representative_designation],
-                          ["Representative email", selectedApplication.representative_contact_email],
-                          ["Representative phone", selectedApplication.representative_contact_phone],
-                          ["Official directory", selectedApplication.official_directory_url],
-                          ["Submitted at", formatDate(selectedApplication.submitted_at)],
+                          [
+                            "Representative",
+                            selectedApplication.representative_contact_name,
+                          ],
+                          [
+                            "Designation",
+                            selectedApplication.representative_designation,
+                          ],
+                          [
+                            "Representative email",
+                            selectedApplication.representative_contact_email,
+                          ],
+                          [
+                            "Representative phone",
+                            selectedApplication.representative_contact_phone,
+                          ],
+                          [
+                            "Official directory",
+                            selectedApplication.official_directory_url,
+                          ],
+                          [
+                            "Submitted at",
+                            formatDate(selectedApplication.submitted_at),
+                          ],
                         ].map(([label, value]) => (
                           <div
                             key={label}
@@ -1386,7 +2058,7 @@ export default function AdminDashboardPage() {
                             onClick={() =>
                               void previewDocument(
                                 selectedApplication.id,
-                                "authorization",
+                                "authorization"
                               )
                             }
                             className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-left text-xs font-semibold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1412,7 +2084,7 @@ export default function AdminDashboardPage() {
                             onClick={() =>
                               void previewDocument(
                                 selectedApplication.id,
-                                "identity",
+                                "identity"
                               )
                             }
                             className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-left text-xs font-semibold text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1441,7 +2113,7 @@ export default function AdminDashboardPage() {
                             onClick={() =>
                               void reviewApplication(
                                 selectedApplication,
-                                "APPROVE",
+                                "APPROVE"
                               )
                             }
                             className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
@@ -1460,7 +2132,7 @@ export default function AdminDashboardPage() {
                             onClick={() =>
                               void reviewApplication(
                                 selectedApplication,
-                                "REJECT",
+                                "REJECT"
                               )
                             }
                             className="flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:-translate-y-0.5 hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
