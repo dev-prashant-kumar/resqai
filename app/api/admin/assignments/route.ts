@@ -5,6 +5,7 @@ import { authorizeAdminRequest } from "@/lib/supabase/admin-authorization";
 const uuidRegex =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+
 export async function GET(request: NextRequest) {
   const { staff, response } = await authorizeAdminRequest();
 
@@ -85,21 +86,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 3. Load recommended resource types.
+    // 3. Read AI recommendations. Use an empty array if unavailable.
     const recommendedTypes =
       incident.ai_analysis?.analysis?.recommended_resource_types ?? [];
 
-    if (!recommendedTypes.length) {
-      return NextResponse.json({
-        success: true,
-        resources: [],
-        assignments: assignments ?? [],
-        responders: [],
-        message: "No resource recommendations are available for this incident.",
-      });
-    }
-
-    // 4. Find available resources.
+    // 4. Load available resources.
+    // The RPC should return all available resources when recommended_types is [].
     const { data: resources, error: resourceError } =
       await staff.admin.rpc("match_available_resources", {
         incident_id: incidentId,
@@ -120,7 +112,7 @@ export async function GET(request: NextRequest) {
 
     const availableResources = resources ?? [];
 
-    // 5. Find organization IDs for available resources.
+    // 5. Load organization IDs for the returned resources.
     const resourceIds = availableResources
       .map((resource: { id: string }) => resource.id)
       .filter(Boolean);
@@ -128,7 +120,7 @@ export async function GET(request: NextRequest) {
     if (!resourceIds.length) {
       return NextResponse.json({
         success: true,
-        resources: availableResources,
+        resources: [],
         assignments: assignments ?? [],
         responders: [],
       });
@@ -152,6 +144,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const resourceOrganizationMap = new Map(
+      (resourceOrganizations ?? []).map((resource) => [
+        resource.id,
+        resource.organization_id,
+      ]),
+    );
+
+    const resourcesWithOrganization = availableResources.map(
+      (resource: { id: string }) => ({
+        ...resource,
+        organization_id: resourceOrganizationMap.get(resource.id) ?? null,
+      }),
+    );
+
     const organizationIds = [
       ...new Set(
         (resourceOrganizations ?? [])
@@ -163,7 +169,7 @@ export async function GET(request: NextRequest) {
     if (!organizationIds.length) {
       return NextResponse.json({
         success: true,
-        resources: availableResources,
+        resources: resourcesWithOrganization,
         assignments: assignments ?? [],
         responders: [],
       });
@@ -196,7 +202,7 @@ export async function GET(request: NextRequest) {
     if (!approvedOrganizationIds.length) {
       return NextResponse.json({
         success: true,
-        resources: availableResources,
+        resources: resourcesWithOrganization,
         assignments: assignments ?? [],
         responders: [],
       });
@@ -235,7 +241,7 @@ export async function GET(request: NextRequest) {
     if (!responderIds.length) {
       return NextResponse.json({
         success: true,
-        resources: availableResources,
+        resources: resourcesWithOrganization,
         assignments: assignments ?? [],
         responders: [],
       });
@@ -258,7 +264,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 9. Combine responder and organization details.
-    const organizationMap = new Map(
+    const organizationNameMap = new Map(
       (approvedOrganizations ?? []).map((organization) => [
         organization.id,
         organization.organization_name,
@@ -281,17 +287,20 @@ export async function GET(request: NextRequest) {
           phone: profile.phone,
           organization_id: membership.organization_id,
           organization_name:
-            organizationMap.get(membership.organization_id) ?? null,
+            organizationNameMap.get(membership.organization_id) ?? null,
           designation: membership.designation,
           employee_id: membership.employee_id,
           membership_role: membership.membership_role,
         };
       })
-      .filter(Boolean);
+      .filter(
+        (responder): responder is NonNullable<typeof responder> =>
+          responder !== null,
+      );
 
     return NextResponse.json({
       success: true,
-      resources: availableResources,
+      resources: resourcesWithOrganization,
       assignments: assignments ?? [],
       responders,
     });
@@ -304,6 +313,7 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
 
 export async function POST(request: NextRequest) {
   const { staff, response } = await authorizeAdminRequest();
@@ -471,15 +481,28 @@ export async function POST(request: NextRequest) {
       message: "Resource assigned successfully.",
       assignmentId,
     });
-  } catch (error) {
-    console.error("Admin assignment API error:", error);
+  } catch (error: unknown) {
+  const dbError = error as {
+    message?: string;
+    code?: string;
+    details?: string;
+    hint?: string;
+  };
 
-    return NextResponse.json(
-      {
-        success: false,
-        message: "An unexpected error occurred.",
-      },
-      { status: 500 },
-    );
-  }
+  console.error("RESPONDER ASSIGNMENT ERROR:", {
+    message: dbError.message,
+    code: dbError.code,
+    details: dbError.details,
+    hint: dbError.hint,
+    error,
+  });
+
+  return NextResponse.json(
+    {
+      success: false,
+      message: "Unable to assign this responder.",
+    },
+    { status: 500 }
+  );
+}
 }

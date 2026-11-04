@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -26,6 +25,47 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+
+interface ResponderAssignment {
+  id: string;
+  incident_id: string;
+  resource_id: string;
+  status:
+    | "PENDING"
+    | "ACCEPTED"
+    | "EN_ROUTE"
+    | "ARRIVED"
+    | "COMPLETED"
+    | "CANCELLED";
+  distance_km: number | null;
+  estimated_response_minutes: number | null;
+  assigned_at: string;
+  accepted_at: string | null;
+  completed_at: string | null;
+  incident: {
+    id: string;
+    title: string;
+    description: string | null;
+    incident_type: string;
+    severity: string;
+    status: string;
+    affected_people: number | null;
+    medical_required: boolean | null;
+    evacuation_required: boolean | null;
+    address: string | null;
+    created_at: string;
+  } | null;
+  resource: {
+    id: string;
+    name: string;
+    resource_type: string;
+    status: string;
+    capacity: number | null;
+    skills: string[] | null;
+    organization: string | null;
+    contact_phone: string | null;
+  } | null;
+}
 
 type VerificationApplication = {
   id: string;
@@ -95,7 +135,7 @@ function formatStatus(value?: string | null) {
 }
 
 function getVerificationState(
-  data: VerificationResponse | null,
+  data: VerificationResponse | null
 ): VerificationState {
   if (!data?.organization) {
     return {
@@ -116,10 +156,7 @@ function getVerificationState(
     data.application?.application_status ?? ""
   ).toUpperCase();
 
-  if (
-    applicationStatus === "REJECTED" ||
-    organizationStatus === "REJECTED"
-  ) {
+  if (applicationStatus === "REJECTED" || organizationStatus === "REJECTED") {
     return {
       title: "Verification Rejected",
       description:
@@ -132,10 +169,7 @@ function getVerificationState(
     };
   }
 
-  if (
-    organizationStatus === "VERIFIED" ||
-    applicationStatus === "VERIFIED"
-  ) {
+  if (organizationStatus === "VERIFIED" || applicationStatus === "VERIFIED") {
     return {
       title: "Organization Verified",
       description:
@@ -146,10 +180,7 @@ function getVerificationState(
     };
   }
 
-  if (
-    applicationStatus === "APPROVED" ||
-    organizationStatus === "APPROVED"
-  ) {
+  if (applicationStatus === "APPROVED" || organizationStatus === "APPROVED") {
     return {
       title: "Approval Recorded",
       description:
@@ -233,17 +264,13 @@ export default function ResponderDashboard() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
 
-  const [verification, setVerification] =
-    useState<VerificationResponse | null>(null);
+  const [verification, setVerification] = useState<VerificationResponse | null>(
+    null
+  );
   const [verificationLoading, setVerificationLoading] = useState(true);
   const [verificationError, setVerificationError] = useState("");
 
-  const assignmentSteps = [
-    "ASSIGNED",
-    "EN_ROUTE",
-    "ARRIVED",
-    "COMPLETED",
-  ];
+  const assignmentSteps = ["ASSIGNED", "EN_ROUTE", "ARRIVED", "COMPLETED"];
   const currentStep = assignmentSteps.indexOf(assignmentStatus);
 
   const loadVerification = useCallback(async () => {
@@ -258,12 +285,11 @@ export default function ResponderDashboard() {
         headers: { Accept: "application/json" },
       });
 
-      const result =
-        (await response.json()) as VerificationResponse;
+      const result = (await response.json()) as VerificationResponse;
 
       if (!response.ok || !result.success) {
         throw new Error(
-          result.message || "Unable to load your verification status.",
+          result.message || "Unable to load your verification status."
         );
       }
 
@@ -272,7 +298,7 @@ export default function ResponderDashboard() {
       setVerificationError(
         error instanceof Error
           ? error.message
-          : "Unable to load verification status.",
+          : "Unable to load verification status."
       );
     } finally {
       setVerificationLoading(false);
@@ -291,14 +317,13 @@ export default function ResponderDashboard() {
           headers: { Accept: "application/json" },
         });
 
-        const result =
-          (await response.json()) as VerificationResponse;
+        const result = (await response.json()) as VerificationResponse;
 
         if (cancelled) return;
 
         if (!response.ok || !result.success) {
           setVerificationError(
-            result.message || "Unable to load verification status.",
+            result.message || "Unable to load verification status."
           );
           return;
         }
@@ -308,7 +333,7 @@ export default function ResponderDashboard() {
       } catch {
         if (!cancelled) {
           setVerificationError(
-            "Unable to connect to the verification service. Please try again.",
+            "Unable to connect to the verification service. Please try again."
           );
         }
       } finally {
@@ -344,35 +369,6 @@ export default function ResponderDashboard() {
     window.location.assign("/responder/verification");
   };
 
-  const updateAssignment = () => {
-    const nextStep = Math.min(
-      currentStep + 1,
-      assignmentSteps.length - 1,
-    );
-
-    setAssignmentStatus(assignmentSteps[nextStep]);
-
-    if (nextStep === assignmentSteps.length - 1) {
-      setNotice("Demo assignment marked as completed.");
-    } else if (assignmentSteps[nextStep] === "ARRIVED") {
-      setNotice("Arrival marked in demo mode.");
-    } else {
-      setNotice(
-        `Demo assignment status updated to ${assignmentSteps[nextStep]}.`,
-      );
-    }
-  };
-
-  const openNavigation = () => {
-    const destination = encodeURIComponent(activeIncident.location);
-
-    window.open(
-      `https://www.google.com/maps/dir/?api=1&destination=${destination}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
   const quickAction = (title: string) => {
     const messages: Record<string, string> = {
       "Team Radio":
@@ -388,6 +384,123 @@ export default function ResponderDashboard() {
 
   const verificationState = getVerificationState(verification);
   const verificationTone = toneStyles[verificationState.tone];
+
+  const [assignments, setAssignments] = useState<ResponderAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [assignmentsError, setAssignmentsError] = useState("");
+  const [updatingAssignmentId, setUpdatingAssignmentId] = useState<
+    string | null
+  >(null);
+
+  const fetchAssignments = useCallback(async () => {
+    try {
+      setAssignmentsError("");
+
+      const response = await fetch("/api/responder/assignments", {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to load assignments.");
+      }
+
+      setAssignments(data.assignments ?? []);
+    } catch (error) {
+      setAssignmentsError(
+        error instanceof Error ? error.message : "Something went wrong."
+      );
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAssignments();
+  }, [fetchAssignments]);
+
+  const updateAssignment = async (assignmentId: string, nextStatus: string) => {
+    try {
+      setUpdatingAssignmentId(assignmentId);
+      setNotice("");
+
+      const response = await fetch("/api/responder/assignments", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          assignmentId,
+          status: nextStatus,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Could not update assignment.");
+      }
+
+      setNotice(data.message);
+      await fetchAssignments();
+    } catch (error) {
+      setNotice(
+        error instanceof Error ? error.message : "Something went wrong."
+      );
+    } finally {
+      setUpdatingAssignmentId(null);
+    }
+  };
+
+  const activeAssignments = assignments.filter((assignment) =>
+    ["PENDING", "ACCEPTED", "EN_ROUTE", "ARRIVED"].includes(assignment.status)
+  ).length;
+
+  const completedAssignments = assignments.filter(
+    (assignment) => assignment.status === "COMPLETED"
+  ).length;
+
+  const pendingAssignments = assignments.filter(
+    (assignment) => assignment.status === "PENDING"
+  ).length;
+
+  const activeAssignment =
+    assignments.find((item) =>
+      ["PENDING", "ACCEPTED", "EN_ROUTE", "ARRIVED"].includes(item.status)
+    ) ??
+    assignments[0] ??
+    null;
+
+  const nextAssignmentStatus: Record<string, string> = {
+    PENDING: "ACCEPTED",
+    ACCEPTED: "EN_ROUTE",
+    EN_ROUTE: "ARRIVED",
+    ARRIVED: "COMPLETED",
+  };
+
+  const nextAssignmentLabel: Record<string, string> = {
+    PENDING: "Accept Assignment",
+    ACCEPTED: "Start Journey",
+    EN_ROUTE: "Mark Arrived",
+    ARRIVED: "Complete Assignment",
+  };
+
+  const openNavigation = (address: string | null) => {
+    if (!address) {
+      setNotice("Incident address is not available.");
+      return;
+    }
+
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      address
+    )}`;
+
+    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <main
@@ -533,23 +646,22 @@ export default function ResponderDashboard() {
         </button>
 
         <div className="group absolute bottom-5 left-5 right-5 rounded-2xl border border-blue-100/80 bg-gradient-to-br from-blue-50 to-indigo-50 p-2 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-lg hover:shadow-blue-200/40">
-        <p className="text-[11px] font-medium text-slate-500">
-          Current role
-        </p>
+          <p className="text-[11px] font-medium text-slate-500">Current role</p>
 
-        <div className="mt-1.5 flex items-center gap-2">
-          <span className="responder-pulse h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+          <div className="mt-1.5 flex items-center gap-2">
+            <span className="responder-pulse h-2 w-2 shrink-0 rounded-full bg-blue-500" />
 
-          <span className="text-sm font-bold tracking-wide text-slate-800 transition-colors duration-300 group-hover:text-blue-700">
-            RESPONDER
-          </span>
+            <span className="text-sm font-bold tracking-wide text-slate-800 transition-colors duration-300 group-hover:text-blue-700">
+              RESPONDER
+            </span>
+          </div>
+
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Organization verification and operational availability are shown
+            separately.
+          </p>
         </div>
-
-        <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
-          Organization verification and operational availability are shown separately.
-        </p>
-      </div>
-            </aside>
+      </aside>
 
       {/* Mobile navigation */}
       {mobileMenuOpen && (
@@ -709,7 +821,7 @@ export default function ResponderDashboard() {
                   <button
                     onClick={() =>
                       setStatus(
-                        status === "AVAILABLE" ? "OFFLINE" : "AVAILABLE",
+                        status === "AVAILABLE" ? "OFFLINE" : "AVAILABLE"
                       )
                     }
                     className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${
@@ -783,16 +895,16 @@ export default function ResponderDashboard() {
                         {verificationLoading
                           ? "Loading verification status..."
                           : verificationError
-                            ? "Unable to Load Status"
-                            : verificationState.title}
+                          ? "Unable to Load Status"
+                          : verificationState.title}
                       </h2>
 
                       <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
                         {verificationLoading
                           ? "Checking the current status from your responder organization records."
                           : verificationError
-                            ? verificationError
-                            : verificationState.description}
+                          ? verificationError
+                          : verificationState.description}
                       </p>
 
                       {verification?.organization && (
@@ -814,7 +926,7 @@ export default function ResponderDashboard() {
                             <p className="mt-1 text-sm font-bold text-slate-800">
                               {verification.application
                                 ? formatStatus(
-                                    verification.application.application_status,
+                                    verification.application.application_status
                                   )
                                 : "No application found"}
                             </p>
@@ -843,7 +955,7 @@ export default function ResponderDashboard() {
                               </p>
                               <p className="mt-1 text-sm font-bold text-slate-800">
                                 {new Date(
-                                  verification.application.submitted_at,
+                                  verification.application.submitted_at
                                 ).toLocaleDateString(undefined, {
                                   day: "numeric",
                                   month: "short",
@@ -961,159 +1073,297 @@ export default function ResponderDashboard() {
           </section>
 
           {/* Assignment and navigation */}
+
+          {/* Assignment and navigation */}
           <section className="mt-6 grid scroll-mt-24 gap-6 xl:grid-cols-[1.55fr_1fr]">
             <div
               id="assignment"
               className="responder-card scroll-mt-24 rounded-3xl"
             >
               <div className="responder-card-inner overflow-hidden border border-white shadow-[0_12px_45px_-32px_rgba(37,99,235,.3)]">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5 sm:p-6">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20">
-                      <Siren size={21} />
+                {assignmentsLoading ? (
+                  <div className="p-10 text-center">
+                    <RefreshCw
+                      className="mx-auto animate-spin text-blue-600"
+                      size={25}
+                    />
+                    <p className="mt-3 text-sm text-slate-500">
+                      Loading your assignments...
+                    </p>
+                  </div>
+                ) : assignmentsError ? (
+                  <div className="p-8 text-center">
+                    <AlertTriangle
+                      className="mx-auto text-rose-500"
+                      size={30}
+                    />
+                    <p className="mt-3 font-semibold text-slate-800">
+                      Unable to load assignments
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {assignmentsError}
+                    </p>
+                    <button
+                      onClick={fetchAssignments}
+                      className="mt-4 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                ) : !activeAssignment ? (
+                  <div className="p-10 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                      <ShieldCheck size={28} />
                     </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-rose-600 sm:text-xs">
-                        Demo Assignment
+                    <h3 className="mt-4 text-lg font-bold text-slate-900">
+                      No Assignments Yet
+                    </h3>
+                    <p className="mt-2 text-sm text-slate-500">
+                      You don't have any assignments right now. New assignments
+                      will appear here when an administrator assigns an incident
+                      to you.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Assignment header */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5 sm:p-6">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20">
+                          <Siren size={21} />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-rose-600 sm:text-xs">
+                            Assigned Incident
+                          </p>
+                          <h3 className="mt-1 font-bold text-slate-900">
+                            {activeAssignment.id.slice(0, 8).toUpperCase()}
+                          </h3>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-extrabold tracking-wider text-rose-700 sm:text-xs">
+                        {activeAssignment.incident?.severity ?? "UNKNOWN"}
+                      </span>
+                    </div>
+
+                    <div className="p-5 sm:p-6">
+                      <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">
+                        {activeAssignment.incident?.title ??
+                          "Incident details unavailable"}
+                      </h2>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        {activeAssignment.incident?.incident_type ??
+                          "Unknown type"}
+                        {" · "}
+                        Assigned{" "}
+                        {new Date(
+                          activeAssignment.assigned_at
+                        ).toLocaleString()}
                       </p>
-                      <h3 className="mt-1 font-bold text-slate-900">
-                        {activeIncident.id}
-                      </h3>
-                    </div>
-                  </div>
 
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[10px] font-extrabold tracking-wider text-rose-700 sm:text-xs">
-                    {activeIncident.severity}
-                  </span>
-                </div>
+                      {activeAssignment.incident?.description && (
+                        <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                          {activeAssignment.incident.description}
+                        </p>
+                      )}
 
-                <div className="p-5 sm:p-6">
-                  <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">
-                    {activeIncident.title}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {activeIncident.type} · Reported {activeIncident.reported}
-                  </p>
+                      {/* Incident details */}
+                      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                        <InfoRow
+                          icon={<MapPin size={18} />}
+                          label="Location"
+                          value={
+                            activeAssignment.incident?.address ??
+                            "Address unavailable"
+                          }
+                        />
 
-                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                    <InfoRow
-                      icon={<MapPin size={18} />}
-                      label="Location"
-                      value={activeIncident.location}
-                    />
-                    <InfoRow
-                      icon={<LocateFixed size={18} />}
-                      label="Distance"
-                      value={activeIncident.distance}
-                    />
-                    <InfoRow
-                      icon={<Clock3 size={18} />}
-                      label="Estimated arrival"
-                      value={activeIncident.eta}
-                    />
-                    <InfoRow
-                      icon={<Users size={18} />}
-                      label="People affected"
-                      value={`${activeIncident.people} people`}
-                    />
-                  </div>
+                        <InfoRow
+                          icon={<LocateFixed size={18} />}
+                          label="Distance"
+                          value={
+                            activeAssignment.distance_km != null
+                              ? `${activeAssignment.distance_km} km`
+                              : "Not available"
+                          }
+                        />
 
-                  <div className="mt-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 p-4 sm:p-5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-500">
-                        Demo assignment progress
-                      </span>
-                      <span className="rounded-full bg-white px-3 py-1 text-[10px] font-extrabold tracking-wider text-blue-700 shadow-sm">
-                        {formatStatus(assignmentStatus)}
-                      </span>
-                    </div>
+                        <InfoRow
+                          icon={<Clock3 size={18} />}
+                          label="Estimated response"
+                          value={
+                            activeAssignment.estimated_response_minutes != null
+                              ? `${activeAssignment.estimated_response_minutes} min`
+                              : "Not available"
+                          }
+                        />
 
-                    <div className="mt-5 flex items-center">
-                      {assignmentSteps.map((step, index) => {
-                        const complete = index <= currentStep;
+                        <InfoRow
+                          icon={<Users size={18} />}
+                          label="People affected"
+                          value={
+                            activeAssignment.incident?.affected_people != null
+                              ? `${activeAssignment.incident.affected_people} people`
+                              : "Not specified"
+                          }
+                        />
 
-                        return (
-                          <div
-                            key={step}
-                            className="flex flex-1 items-center last:flex-none"
-                          >
-                            <div
-                              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${
-                                complete
-                                  ? "border-blue-600 bg-blue-600 text-white"
-                                  : "border-slate-200 bg-white text-slate-400"
-                              }`}
-                            >
-                              {complete ? (
-                                <CheckCircle2 size={14} />
-                              ) : (
-                                <span className="text-[10px] font-bold">
-                                  {index + 1}
-                                </span>
-                              )}
-                            </div>
-                            {index < assignmentSteps.length - 1 && (
-                              <div className="mx-1 h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
-                                <div
-                                  className={`h-full rounded-full transition-all duration-500 ${
-                                    index < currentStep
-                                      ? "w-full bg-blue-600"
-                                      : "w-0"
-                                  }`}
-                                />
-                              </div>
-                            )}
+                        <InfoRow
+                          icon={<ShieldCheck size={18} />}
+                          label="Assigned resource"
+                          value={
+                            activeAssignment.resource?.name ?? "Unavailable"
+                          }
+                        />
+
+                        <InfoRow
+                          icon={<Users size={18} />}
+                          label="Resource type"
+                          value={
+                            activeAssignment.resource?.resource_type ??
+                            "Unknown"
+                          }
+                        />
+                      </div>
+
+                      {/* Assignment progress */}
+                      {activeAssignment.status !== "CANCELLED" ? (
+                        <div className="mt-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-indigo-50/60 p-4 sm:p-5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-slate-500">
+                              Assignment progress
+                            </span>
+
+                            <span className="rounded-full bg-white px-3 py-1 text-[10px] font-extrabold tracking-wider text-blue-700 shadow-sm">
+                              {formatStatus(activeAssignment.status)}
+                            </span>
                           </div>
-                        );
-                      })}
+
+                          <div className="mt-5 flex items-center">
+                            {assignmentSteps.map((step, index) => {
+                              const complete = index <= currentStep;
+
+                              return (
+                                <div
+                                  key={step}
+                                  className="flex flex-1 items-center last:flex-none"
+                                >
+                                  <div
+                                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${
+                                      complete
+                                        ? "border-blue-600 bg-blue-600 text-white"
+                                        : "border-slate-200 bg-white text-slate-400"
+                                    }`}
+                                  >
+                                    {complete ? (
+                                      <CheckCircle2 size={14} />
+                                    ) : (
+                                      <span className="text-[10px] font-bold">
+                                        {index + 1}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {index < assignmentSteps.length - 1 && (
+                                    <div className="mx-1 h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
+                                      <div
+                                        className={`h-full rounded-full transition-all duration-500 ${
+                                          index < currentStep
+                                            ? "w-full bg-blue-600"
+                                            : "w-0"
+                                        }`}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-5 gap-1 text-center text-[9px] font-semibold text-slate-500 sm:text-[10px]">
+                            <span>Assigned</span>
+                            <span>Accepted</span>
+                            <span>En route</span>
+                            <span>Arrived</span>
+                            <span>Completed</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <p className="text-sm font-bold text-slate-600">
+                            This assignment has been cancelled.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                        <button
+                          onClick={() =>
+                            openNavigation(
+                              activeAssignment.incident?.address ?? null
+                            )
+                          }
+                          disabled={!activeAssignment.incident?.address}
+                          className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Navigation size={17} />
+                          Open Navigation
+                          <ArrowUpRight
+                            size={15}
+                            className="transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                          />
+                        </button>
+
+                        {nextAssignmentStatus[activeAssignment.status] ? (
+                          <button
+                            onClick={() =>
+                              updateAssignment(
+                                activeAssignment.id,
+                                nextAssignmentStatus[activeAssignment.status]
+                              )
+                            }
+                            disabled={
+                              updatingAssignmentId === activeAssignment.id
+                            }
+                            className="flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-3.5 text-sm font-bold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {updatingAssignmentId === activeAssignment.id ? (
+                              <RefreshCw size={17} className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 size={17} />
+                            )}
+
+                            {updatingAssignmentId === activeAssignment.id
+                              ? "Updating..."
+                              : nextAssignmentLabel[activeAssignment.status]}
+                          </button>
+                        ) : (
+                          <div className="flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm font-bold text-emerald-700">
+                            <CheckCircle2 size={17} />
+                            Assignment Completed
+                          </div>
+                        )}
+                      </div>
+
+                      {notice && (
+                        <p className="mt-4 text-xs font-medium text-blue-600">
+                          {notice}
+                        </p>
+                      )}
+
+                      <p className="mt-4 text-xs leading-relaxed text-slate-400">
+                        Assignment progress is saved to the ResQAI database.
+                      </p>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-4 gap-1 text-center text-[9px] font-semibold text-slate-500 sm:text-[10px]">
-                      <span>Assigned</span>
-                      <span>En route</span>
-                      <span>Arrived</span>
-                      <span>Completed</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                    <button
-                      onClick={openNavigation}
-                      className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5"
-                    >
-                      <Navigation size={17} />
-                      Open Navigation
-                      <ArrowUpRight
-                        size={15}
-                        className="transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                      />
-                    </button>
-
-                    <button
-                      onClick={updateAssignment}
-                      disabled={assignmentStatus === "COMPLETED"}
-                      className="flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-3.5 text-sm font-bold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <CheckCircle2 size={17} />
-                      {assignmentStatus === "EN_ROUTE"
-                        ? "Mark Arrived"
-                        : assignmentStatus === "ARRIVED"
-                          ? "Complete Assignment"
-                          : assignmentStatus === "COMPLETED"
-                            ? "Assignment Completed"
-                            : "Start Response"}
-                    </button>
-                  </div>
-
-                  <p className="mt-4 text-xs leading-relaxed text-slate-400">
-                    Demo only: assignment changes are local to this page and
-                    are not saved to the incident database.
-                  </p>
-                </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Illustrative navigation */}
+            {/* Navigation preview */}
             <div
               id="live-status"
               className="responder-card scroll-mt-24 rounded-3xl"
@@ -1122,14 +1372,15 @@ export default function ResponderDashboard() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600 sm:text-xs">
-                      Navigation Preview
+                      Navigation
                     </p>
                     <h3 className="mt-1 text-lg font-extrabold text-slate-900">
                       Response Network
                     </h3>
                   </div>
+
                   <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[10px] font-bold text-amber-700">
-                    ILLUSTRATIVE
+                    MAP PREVIEW
                   </div>
                 </div>
 
@@ -1142,16 +1393,14 @@ export default function ResponderDashboard() {
                       backgroundSize: "95px 85px, 115px 105px",
                     }}
                   />
+
                   <div className="absolute left-[18%] top-0 h-full w-7 rotate-[25deg] bg-white/90 shadow-sm" />
                   <div className="absolute left-[58%] top-0 h-full w-5 -rotate-[24deg] bg-white/90 shadow-sm" />
                   <div className="absolute left-0 top-[35%] h-6 w-full rotate-[-8deg] bg-white/90 shadow-sm" />
                   <div className="absolute left-0 top-[72%] h-4 w-full rotate-[5deg] bg-white/90 shadow-sm" />
 
                   <div className="absolute left-[25%] top-[25%] rounded-lg border border-white bg-white/90 px-2 py-1 text-[9px] font-semibold text-slate-500 shadow-sm">
-                    Civil Lines
-                  </div>
-                  <div className="absolute right-[8%] top-[18%] rounded-lg border border-white bg-white/90 px-2 py-1 text-[9px] font-semibold text-slate-500 shadow-sm">
-                    Railway Crossing
+                    Incident
                   </div>
 
                   <div className="absolute left-[31%] top-[44%]">
@@ -1168,31 +1417,38 @@ export default function ResponderDashboard() {
 
                   <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-white bg-white/95 px-3 py-2 text-[10px] font-bold text-slate-600 shadow-sm">
                     <Crosshair size={13} className="text-blue-600" />
-                    NOT REAL-TIME GPS
+                    ILLUSTRATIVE MAP
                   </div>
+
                   <button
-                    onClick={openNavigation}
-                    className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-bold text-white shadow-md transition hover:bg-blue-700"
+                    onClick={() =>
+                      openNavigation(
+                        activeAssignment?.incident?.address ?? null
+                      )
+                    }
+                    disabled={!activeAssignment?.incident?.address}
+                    className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-bold text-white shadow-md transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Open Maps <ArrowUpRight size={13} />
                   </button>
                 </div>
 
                 <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-                  This graphic is illustrative and does not show your live
-                  position or a verified incident location.
+                  This graphic is illustrative. Open Maps to view the assigned
+                  incident address.
                 </p>
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-3">
                     <p className="text-xs font-medium text-slate-500">
-                      Local availability
+                      Responder availability
                     </p>
                     <p className="mt-1 flex items-center gap-1.5 text-sm font-bold text-slate-800">
                       <LocateFixed size={14} className="text-blue-600" />
                       {status}
                     </p>
                   </div>
+
                   <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-3">
                     <p className="text-xs font-medium text-slate-500">
                       Team channel
@@ -1230,7 +1486,9 @@ export default function ResponderDashboard() {
                   icon={<Navigation size={19} />}
                   title="Navigation"
                   description="Open route to incident"
-                  onClick={openNavigation}
+                  onClick={() =>
+                    openNavigation(activeAssignment?.incident?.address ?? null)
+                  }
                 />
                 <QuickAction
                   icon={<Radio size={19} />}

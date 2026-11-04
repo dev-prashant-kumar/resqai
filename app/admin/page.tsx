@@ -102,8 +102,7 @@ type AvailableResource = {
   status: string;
   capacity: number | null;
   skills: string[] | null;
-  distance_km?: number | null;
-  organization: string | null;
+  distance_km: number | null;
   organization_id: string | null;
 };
 
@@ -135,12 +134,11 @@ type AvailableResponder = {
   full_name: string | null;
   phone: string | null;
   organization_id: string;
-  organization_name: string;
+  organization_name: string | null;
   designation: string | null;
   employee_id: string | null;
   membership_role: string;
 };
-
 
 type ApiResponse = {
   success?: boolean;
@@ -403,9 +401,9 @@ export default function AdminDashboardPage() {
         }
 
         const resources = result.resources ?? [];
-        setAvailableResponders(result.responders ?? []);
 
         setAvailableResources(resources);
+        setAvailableResponders(result.responders ?? []);
         setSelectedResourceId(resources[0]?.id ?? "");
       } catch (err) {
         setResourceError(
@@ -475,6 +473,14 @@ export default function AdminDashboardPage() {
 
   const selectedIncident =
     incidents.find((incident) => incident.id === selectedIncidentId) ?? null;
+  const selectedResource = availableResources.find(
+    (resource) => resource.id === selectedResourceId
+  );
+
+  const eligibleResponders = availableResponders.filter(
+    (responder) =>
+      responder.organization_id === selectedResource?.organization_id
+  );
 
   const criticalCount = incidents.filter(
     (item) => getIncidentSeverity(item).toUpperCase() === "CRITICAL"
@@ -527,8 +533,8 @@ export default function AdminDashboardPage() {
   }
 
   async function assignSelectedResource() {
-    if (!selectedIncident || !selectedResourceId) {
-      setError("Select an incident and an available resource.");
+    if (!selectedIncident || !selectedResourceId || !selectedResponderId) {
+      setError("Select an incident, resource, and responder.");
       return;
     }
 
@@ -536,40 +542,23 @@ export default function AdminDashboardPage() {
       (item) => item.id === selectedResourceId
     );
 
-    if (!resource) {
-      setError("The selected resource is no longer available.");
-      return;
-    }
-
-    const organizationResponders = availableResponders.filter(
-      (responder) => responder.organization_id === resource.organization_id
+    const responder = availableResponders.find(
+      (item) =>
+        item.id === selectedResponderId &&
+        item.organization_id === resource?.organization_id
     );
 
-    if (organizationResponders.length === 0) {
-      setError(
-        "No approved responders are available for this resource's organization."
-      );
-      return;
-    }
-
-    if (!selectedResponderId) {
-      setError("Select a responder before assigning the resource.");
-      return;
-    }
-
-    const responder = organizationResponders.find(
-      (item) => item.id === selectedResponderId
-    );
-
-    if (!responder) {
-      setError("Select a valid responder for this resource.");
+    if (!resource || !responder) {
+      setError("The selected resource or eligible responder is invalid.");
       return;
     }
 
     const confirmed = window.confirm(
       `Assign "${resource.name}" to "${
-        responder.full_name || "Responder"
-      }" for "${selectedIncident.title}"?`
+        selectedIncident.title
+      }"?\n\nResponder: ${
+        responder.full_name || "Unnamed responder"
+      }\nOrganization: ${responder.organization_name || "Unknown"}`
     );
 
     if (!confirmed) return;
@@ -599,24 +588,28 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      if (response.status === 409) {
+        throw new Error(
+          result.message || "This resource is no longer available."
+        );
+      }
+
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Unable to assign this resource.");
       }
 
       setNotice(
         `${resource.name} assigned to ${
-          responder.full_name || "responder"
+          responder.full_name || "the selected responder"
         } successfully.`
       );
 
       setSelectedResponderId("");
 
-      if (selectedIncidentId) {
-        await Promise.all([
-          loadAvailableResources(selectedIncidentId),
-          loadAssignedResources(selectedIncidentId),
-        ]);
-      }
+      await Promise.all([
+        loadAvailableResources(selectedIncident.id),
+        loadAssignedResources(selectedIncident.id),
+      ]);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "An unexpected error occurred."
@@ -1616,9 +1609,11 @@ export default function AdminDashboardPage() {
 
                         <button
                           type="button"
-                          onClick={() =>
-                            void loadAvailableResources(selectedIncident.id)
-                          }
+                          onClick={() => {
+                            if (selectedIncident) {
+                              void loadAvailableResources(selectedIncident.id);
+                            }
+                          }}
                           className="ml-2 font-bold underline"
                         >
                           Try again
@@ -1747,6 +1742,49 @@ export default function AdminDashboardPage() {
                             })()}
                           </div>
                         )}
+
+                        <div className="mt-4">
+                          <label
+                            htmlFor="selected-responder"
+                            className="mb-2 block text-sm font-bold text-slate-800"
+                          >
+                            Select responder
+                          </label>
+
+                          <select
+                            id="selected-responder"
+                            value={selectedResponderId}
+                            onChange={(event) =>
+                              setSelectedResponderId(event.target.value)
+                            }
+                            disabled={
+                              !selectedResourceId ||
+                              eligibleResponders.length === 0
+                            }
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+                          >
+                            <option value="">
+                              Choose an eligible responder
+                            </option>
+
+                            {eligibleResponders.map((responder) => (
+                              <option key={responder.id} value={responder.id}>
+                                {responder.full_name || "Unnamed responder"}
+                                {responder.designation
+                                  ? ` — ${responder.designation}`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+
+                          {selectedResourceId &&
+                            eligibleResponders.length === 0 && (
+                              <p className="mt-2 text-xs text-amber-700">
+                                No approved responders are available in this
+                                resource's organization.
+                              </p>
+                            )}
+                        </div>
 
                         <button
                           type="button"
